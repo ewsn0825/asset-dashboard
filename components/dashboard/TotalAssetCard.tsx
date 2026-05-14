@@ -1,39 +1,46 @@
 "use client";
 
+import { useMemo } from "react";
 import { useAssetStore } from "@/store/useAssetStore";
-import { calculateTotalStockValue } from "@/lib/utils";
+import { useAssets } from "@/hooks/useAssets"; // ✅ 실제 API 훅 추가
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function TotalAssetCard() {
   // ✅ 1. 현재 대시보드에서 활성화된 탭(계좌)을 가져옵니다.
   const activeTab = useAssetStore((state) => state.activeTab);
 
-  // ✅ 2. 전체 예수금 객체가 아닌 "현재 탭의 예수금"만 가져옵니다. (안전장치로 ?? 0 추가)
-  const availableCash = useAssetStore(
-    (state) => state.availableCash?.[activeTab] ?? 0,
-  );
-  const stocks = useAssetStore((state) => state.stocks);
+  // ✅ 2. React Query를 통해 실제 자산 데이터를 가져옵니다.
+  const { data: assets = [] } = useAssets();
 
-  // ✅ 3. 전체 주식이 아닌 "현재 탭에 해당하는 주식"만 필터링합니다.
-  const currentStocks = stocks.filter(
-    (stock) => stock.accountType === activeTab,
-  );
+  // ✅ 3. 현재 탭에 맞는 자산만 필터링하여 총합을 계산합니다.
+  const totalAsset = useMemo(() => {
+    return assets
+      .filter((asset) => {
+        // 💡 [수정됨] CMA 탭: 일반 계좌의 예수금(cash-balance)이 섞여 들어오지 않도록 제외합니다.
+        if (activeTab === "CMA") {
+          return asset.type === "CMA" && asset.id !== "cash-balance";
+        }
 
-  // 4. 컴포넌트 렌더링 시점에 총 자산을 계산합니다.
-  // (해당 탭의 예수금 + 해당 탭의 보유 주식 총 평가 금액)
-  const totalAsset = availableCash + calculateTotalStockValue(currentStocks);
+        // ISA 탭
+        if (activeTab === "ISA") {
+          return asset.type === "ISA";
+        }
+
+        // 💡 [수정됨] 일반 탭 (기본값): 보유 주식(DOMESTIC_STOCK)과 주문가능 예수금(cash-balance)을 모두 합산합니다.
+        return asset.type === "DOMESTIC_STOCK" || asset.id === "cash-balance";
+      })
+      .reduce((sum, asset) => sum + asset.balance, 0);
+  }, [assets, activeTab]);
 
   return (
-    // ✨ 디자인 개선 1: 다른 카드들과 동일하게 둥근 모서리(rounded-2xl) 적용
     <Card className="rounded-2xl border-zinc-200/80 shadow-sm flex flex-col justify-between">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-zinc-500">
-          총 자산
+          {activeTab} 계좌 총 자산
         </CardTitle>
       </CardHeader>
 
       <CardContent>
-        {/* ✨ 디자인 개선 2: 화폐 기호(₩)는 작게, 숫자는 크고 진하게 분리하여 가독성 극대화 */}
         <div className="flex items-baseline gap-1 mt-1">
           <span className="text-xl font-medium text-zinc-400">₩</span>
           <span className="text-3xl font-bold text-zinc-900 tracking-tight">

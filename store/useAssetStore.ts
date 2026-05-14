@@ -1,57 +1,25 @@
-// store/useAssetStore.ts
-
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-// ✅ 1. 직접 정의하지 않고 types 폴더에서 가져옵니다.
-import { Stock, AccountType } from "@/types";
+// ✅ 주식 데이터(Stock)는 이제 API에서 가져오므로 AccountType만 임포트합니다.
+import { AccountType } from "@/types";
 
-// ❌ 여기에 있던 export type AccountType과 export interface Stock 부분은 전부 지워주세요! ❌
-
+// 스토어 타입이 아주 단순해졌습니다!
 interface AssetStore {
   activeTab: AccountType;
   setActiveTab: (tab: AccountType) => void;
-
-  stocks: Stock[];
-  availableCash: Record<AccountType, number>;
-
-  addStock: (stock: Stock) => void;
-  deleteStock: (id: string) => void;
-  updateCash: (accountType: AccountType, amount: number) => void;
 }
 
 export const useAssetStore = create<AssetStore>()(
   persist(
     (set) => ({
+      // 초기 상태는 '일반' 계좌 탭으로 설정
       activeTab: "일반",
+      // 탭 변경 액션
       setActiveTab: (tab) => set({ activeTab: tab }),
-
-      stocks: [],
-      availableCash: {
-        일반: 0,
-        ISA: 0,
-        CMA: 0,
-      },
-
-      addStock: (stock) =>
-        set((state) => ({
-          stocks: [...state.stocks, stock],
-        })),
-
-      deleteStock: (id) =>
-        set((state) => ({
-          stocks: state.stocks.filter((s) => s.id !== id),
-        })),
-
-      updateCash: (accountType, amount) =>
-        set((state) => ({
-          availableCash: {
-            ...state.availableCash,
-            [accountType]: state.availableCash[accountType] + amount,
-          },
-        })),
     }),
     {
-      name: "asset-storage",
+      // persist 미들웨어를 유지하면, 사용자가 'ISA' 탭을 보다가 새로고침해도 'ISA' 탭이 유지됩니다!
+      name: "asset-ui-storage",
     },
   ),
 );

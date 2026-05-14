@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   PieChart,
   Pie,
@@ -9,39 +10,52 @@ import {
   Tooltip,
 } from "recharts";
 import { useAssetStore } from "@/store/useAssetStore";
+import { useAssets } from "@/hooks/useAssets"; // ✅ 실제 API 훅 추가
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
-// ✅ 빈 화면을 장식할 아이콘을 가져옵니다 (Recharts의 PieChart와 이름이 겹치지 않게 이름을 바꿉니다)
 import { PieChart as PieChartIcon } from "lucide-react";
 
 const COLORS = [
-  "#3182F6", // 예수금 (토스 느낌의 핀테크 블루)
-  "#10B981", // 에메랄드 그린
-  "#F59E0B", // 앰버 오렌지
+  "#3182F6", // 블루
+  "#10B981", // 에메랄드
+  "#F59E0B", // 앰버
   "#EF4444", // 레드
   "#8B5CF6", // 퍼플
-  "#64748B", // 슬레이트 그레이
+  "#64748B", // 슬레이트
 ];
 
 export function AssetPieChart() {
   const activeTab = useAssetStore((state) => state.activeTab);
-  const stocks = useAssetStore((state) => state.stocks);
-  const availableCashMap = useAssetStore((state) => state.availableCash);
 
-  const currentCash = availableCashMap[activeTab] || 0;
-  const currentStocks = stocks.filter(
-    (stock) => stock.accountType === activeTab,
-  );
+  // ✅ 1. 실제 API 데이터 가져오기
+  const { data: assets = [] } = useAssets();
 
-  const chartData = [
-    { name: "예수금", value: currentCash },
-    ...currentStocks.map((s) => ({
-      name: s.name,
-      value: (s.quantity || 0) * (s.currentPrice || 0),
-    })),
-  ].filter((item) => item.value > 0);
+  // ✅ 2. 차트 데이터 변환 로직 (useMemo 활용)
+  const chartData = useMemo(() => {
+    return assets
+      .filter((asset) => {
+        // 💡 [수정됨] CMA, ISA 탭에서는 예수금(cash-balance)이 파이 차트에 섞이지 않도록 완벽 차단
+        if (activeTab === "CMA") {
+          return asset.type === "CMA" && asset.id !== "cash-balance";
+        }
+        if (activeTab === "ISA") {
+          return asset.type === "ISA" && asset.id !== "cash-balance";
+        }
 
-  // ✨ 디자인 개선 1: 텅 비었을 때 보여주는 'Empty State' 화면 고급화
+        // 💡 [수정됨] 일반 탭: 주식과 예수금을 모두 '자산 비중' 파이 차트에 포함합니다.
+        // (만약 파이 차트에서 예수금을 빼고 순수 '주식 비중'만 그리고 싶다면,
+        // 아래 줄을 return asset.type === "DOMESTIC_STOCK" && asset.id !== "cash-balance"; 로 변경하세요!)
+        return asset.type === "DOMESTIC_STOCK" || asset.id === "cash-balance";
+      })
+      .map((asset) => ({
+        // Recharts 규격에 맞게 매핑
+        name: asset.accountName,
+        value: asset.balance,
+      }))
+      .filter((item) => item.value > 0); // 금액이 0보다 큰 것만 표시
+  }, [assets, activeTab]);
+
+  // 자산 데이터가 없을 때의 Empty State
   if (chartData.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-[300px] w-full text-center">
@@ -52,7 +66,7 @@ export function AssetPieChart() {
           {activeTab} 계좌에 자산 데이터가 없습니다.
         </p>
         <p className="text-sm text-zinc-400 mt-1">
-          예수금을 입금하거나 종목을 추가해보세요.
+          실제 계좌에 보유 중인 자산 비중이 이곳에 표시됩니다.
         </p>
       </div>
     );
@@ -61,20 +75,19 @@ export function AssetPieChart() {
   return (
     <Card className="border-none shadow-none bg-transparent w-full h-full">
       <CardContent className="w-full h-full p-0 flex flex-col justify-center">
-        {/* 높이를 300px로 넉넉하게 잡아 차트가 잘리지 않게 합니다 */}
         <ResponsiveContainer width="100%" height={300}>
           <PieChart>
             <Pie
               data={chartData}
               cx="50%"
               cy="50%"
-              innerRadius={75} // ✨ 디자인 개선 2: 도넛의 두께를 더 모던하게 조정
+              innerRadius={75}
               outerRadius={100}
-              paddingAngle={4} // 파이 조각 사이의 간격을 살짝 넓혀 깔끔하게
+              paddingAngle={4}
               dataKey="value"
-              stroke="none" // 테두리 선을 없애서 플랫한 느낌 강조
+              stroke="none"
             >
-              {chartData.map((entry, index) => (
+              {chartData.map((_, index) => (
                 <Cell
                   key={`cell-${index}`}
                   fill={COLORS[index % COLORS.length]}
@@ -82,10 +95,8 @@ export function AssetPieChart() {
               ))}
             </Pie>
 
-            {/* ✨ 디자인 개선 3: 툴팁을 더 부드럽고 세련되게 */}
             <Tooltip
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              formatter={(value: any) => [
+              formatter={(value: unknown) => [
                 formatCurrency(Number(value)),
                 "평가 금액",
               ]}
@@ -100,15 +111,15 @@ export function AssetPieChart() {
               itemStyle={{ color: "#333D4B", marginTop: "4px" }}
             />
 
-            {/* 하단 범례(Legend) 스타일 조정 */}
             <Legend
               verticalAlign="bottom"
               height={36}
               iconType="circle"
               wrapperStyle={{
-                fontSize: "14px",
+                fontSize: "13px",
                 fontWeight: "500",
                 color: "#4E5968",
+                paddingTop: "10px",
               }}
             />
           </PieChart>

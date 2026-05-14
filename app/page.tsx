@@ -9,16 +9,23 @@ import {
   AddStockModal,
   AssetPieChart,
 } from "@/components/dashboard";
-import { useAssetStore, AccountType } from "@/store/useAssetStore";
+import { useAssetStore } from "@/store/useAssetStore";
+import { AccountType } from "@/types";
+import { useAssets } from "@/hooks/useAssets";
 
 export default function Home() {
   const [isReady, setIsReady] = useState(false);
+
+  // ✅ 1. 에러 발생 시 우아한 재시도를 위해 refetch 함수도 함께 가져옵니다.
+  const { isLoading: isApiLoading, isError, refetch } = useAssets();
 
   const activeTab = useAssetStore((state) => state.activeTab);
   const setActiveTab = useAssetStore((state) => state.setActiveTab);
 
   const TABS: AccountType[] = ["일반", "ISA", "CMA"];
 
+  // ✅ 2. Zustand persist 하이드레이션 에러 방지
+  // (린트 에러를 우회하기 위해 상태 업데이트를 다음 틱으로 미룹니다)
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsReady(true);
@@ -26,10 +33,10 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
-  if (!isReady) {
+  // 로딩 상태 (스켈레톤 UI)
+  if (!isReady || isApiLoading) {
     return (
       <main className="min-h-screen bg-[#f8f9fa] py-10 px-6 md:px-10">
-        {/* 스켈레톤 UI 간격 강제 적용 (space-y-10) */}
         <div className="max-w-[1200px] mx-auto space-y-10 animate-pulse">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-zinc-200">
             <div className="space-y-3 w-full">
@@ -58,11 +65,34 @@ export default function Home() {
     );
   }
 
+  // 에러 상태
+  if (isError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#f8f9fa]">
+        <div className="text-center p-8 bg-white rounded-2xl shadow-sm border border-red-100">
+          <p className="text-red-500 font-bold text-lg">
+            데이터 통신 중 오류가 발생했습니다.
+          </p>
+          <p className="text-zinc-500 mt-2">
+            API 키 설정이나 네트워크 상태를 확인해주세요.
+          </p>
+          {/* 💡 [수정됨] 페이지 전체 새로고침 대신 React Query의 refetch를 호출하여 부드럽게 재시도합니다. */}
+          <button
+            onClick={() => refetch()}
+            className="mt-4 px-4 py-2 bg-zinc-900 text-white rounded-lg text-sm transition-colors hover:bg-zinc-800"
+          >
+            다시 시도
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 정상 렌더링
   return (
     <main className="min-h-screen bg-[#f8f9fa] py-10 px-6 md:px-10">
-      {/* ✅ 핵심: flex gap 대신 space-y-10을 사용하여 위아래 섹션 간격(약 40px)을 강제로 벌려줍니다. */}
       <div className="max-w-[1200px] mx-auto space-y-10">
-        {/* 1. 헤더 (border-b와 padding-bottom으로 아래 요소와 분리) */}
+        {/* 1. 헤더 */}
         <div className="flex flex-row items-center justify-between pb-6 border-b border-zinc-200/80">
           <div>
             <h1 className="text-[28px] font-bold tracking-tight text-zinc-900">
@@ -77,7 +107,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 2. 탭 UI (이미지와 동일한 '알약' 모양의 회색 바탕 + 흰색 선택 버튼 디자인) */}
+        {/* 2. 탭 UI */}
         <div className="inline-flex bg-zinc-100 p-1.5 rounded-full">
           {TABS.map((tab) => (
             <button
@@ -94,18 +124,16 @@ export default function Home() {
           ))}
         </div>
 
-        {/* 3. 상단 요약 카드 3개 (가로 간격은 grid의 gap-6 활용) */}
+        {/* 3. 상단 요약 카드 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <TotalAssetCard />
           <ProfitCard />
           <CashCard />
         </div>
 
-        {/* 4. 하단 메인 콘텐츠 (자산비중 / 보유종목 상세) */}
+        {/* 4. 하단 메인 콘텐츠 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          {/* 왼쪽: 자산 비중 */}
           <div className="md:col-span-1">
-            {/* mb-4로 타이틀과 아래 카드 사이의 간격 확실히 확보 */}
             <h2 className="text-lg font-bold text-zinc-900 mb-4 px-1">
               자산 비중
             </h2>
@@ -117,7 +145,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 오른쪽: 보유 종목 상세 */}
           <div className="md:col-span-2">
             <h2 className="text-lg font-bold text-zinc-900 mb-4 px-1">
               보유 종목 상세
