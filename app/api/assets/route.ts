@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-
-let cachedToken: string | null = null;
-let tokenExpirationTime: number = 0;
+import { redis } from "@/lib/redis"; // 👈 Redis 클라이언트 import 추가
 
 interface KisStockItem {
   pdno: string;
@@ -26,11 +24,12 @@ export async function GET() {
 
     const TR_ID = process.env.IS_MOCK === "true" ? "VTTC8434R" : "TTTC8434R";
 
-    // --- STEP 1: 토큰 발급 및 캐싱 ---
-    let accessToken = cachedToken;
-    const now = Date.now();
+    // --- STEP 1: 토큰 발급 및 Redis 캐싱 ---
+    const tokenCacheKey = "kis_access_token"; // Redis에 저장할 키 이름
+    let accessToken = await redis.get<string>(tokenCacheKey);
 
-    if (!accessToken || now >= tokenExpirationTime) {
+    // Redis에 캐싱된 토큰이 없는 경우에만 새로 발급
+    if (!accessToken) {
       const tokenRes = await fetch(`${API_BASE}/oauth2/tokenP`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -50,8 +49,9 @@ export async function GET() {
       }
 
       accessToken = tokenData.access_token;
-      cachedToken = accessToken;
-      tokenExpirationTime = now + 23 * 60 * 60 * 1000;
+
+      // Redis에 새 토큰 저장 (ex 옵션으로 23시간(82800초) 후 자동 만료 설정)
+      await redis.set(tokenCacheKey, accessToken, { ex: 82800 });
     }
 
     // --- STEP 2: 잔고 조회 ---
