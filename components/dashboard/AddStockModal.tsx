@@ -116,37 +116,40 @@ export function AddStockModal() {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        {/* ✅ 장이 닫혀있으면 버튼 비활성화 처리 */}
+        {/* ✅ 메인 화면 주문 버튼 다크모드 대응 */}
         <button
           disabled={!isMarketOpen}
           className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
             isMarketOpen
-              ? "bg-zinc-900 text-white hover:bg-zinc-800"
-              : "bg-zinc-200 text-zinc-400 cursor-not-allowed"
+              ? "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              : "bg-zinc-200 text-zinc-400 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-500"
           }`}
         >
           {isMarketOpen ? "주문하기 +" : "장 마감 (주문 불가)"}
         </button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-[425px]">
+      {/* 💡 DialogContent에 명시적인 다크모드 배경 및 테두리 추가 */}
+      <DialogContent className="sm:max-w-[425px] rounded-2xl dark:bg-zinc-900 dark:border-zinc-800">
         <DialogHeader>
-          <DialogTitle>{activeTab} 모의투자 주문</DialogTitle>
+          <DialogTitle className="text-zinc-900 dark:text-zinc-100">
+            {activeTab} 모의투자 주문
+          </DialogTitle>
           <DialogDescription className="sr-only">
             모의투자 매수 및 매도 주문을 입력하는 폼입니다.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
-          {/* ✅ 매수 / 매도 선택 탭 */}
-          <div className="flex p-1 bg-zinc-100 rounded-lg">
+          {/* ✅ 매수 / 매도 선택 탭 다크모드 대응 */}
+          <div className="flex p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg transition-colors">
             <button
               type="button"
               onClick={() => setOrderType("BUY")}
               className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-all ${
                 orderType === "BUY"
-                  ? "bg-white text-red-500 shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-700"
+                  ? "bg-white text-red-500 shadow-sm dark:bg-zinc-700 dark:text-red-400"
+                  : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
               }`}
             >
               매수
@@ -156,17 +159,18 @@ export function AddStockModal() {
               onClick={() => setOrderType("SELL")}
               className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-all ${
                 orderType === "SELL"
-                  ? "bg-white text-blue-500 shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-700"
+                  ? "bg-white text-blue-500 shadow-sm dark:bg-zinc-700 dark:text-blue-400"
+                  : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
               }`}
             >
               매도
             </button>
           </div>
 
+          {/* ✅ 입력 폼 다크모드 대응 (깊이감을 위해 bg-zinc-950 적용) */}
           <div className="space-y-4 pt-2">
             <div>
-              <label className="text-sm font-medium text-zinc-700">
+              <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 종목 검색
               </label>
               <input
@@ -174,14 +178,14 @@ export function AddStockModal() {
                 value={searchTerm}
                 onChange={handleSearchChange}
                 placeholder="종목명 또는 종목코드 입력"
-                className="w-full mt-1.5 p-2.5 text-sm border border-zinc-200 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-shadow"
+                className="w-full mt-1.5 p-2.5 text-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700/60 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-400 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 transition-colors"
                 required
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-zinc-700">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   주문 단가
                 </label>
                 <input
@@ -189,12 +193,12 @@ export function AddStockModal() {
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="0"
-                  className="w-full mt-1.5 p-2.5 text-sm border border-zinc-200 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-shadow"
+                  className="w-full mt-1.5 p-2.5 text-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700/60 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-400 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 transition-colors"
                   required
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-zinc-700">
+                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   주문 수량
                 </label>
                 <input
@@ -202,24 +206,24 @@ export function AddStockModal() {
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
                   placeholder="0"
-                  className="w-full mt-1.5 p-2.5 text-sm border border-zinc-200 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-shadow"
+                  className="w-full mt-1.5 p-2.5 text-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700/60 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-400 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 transition-colors"
                   required
                 />
               </div>
             </div>
           </div>
 
-          {/* 제출 버튼: 매수/매도 상태에 따라 색상 변경 */}
+          {/* ✅ 제출 버튼 다크모드 대응 */}
           <button
             type="submit"
             disabled={isSubmitting}
             className={`w-full py-3 rounded-lg text-white font-bold transition-colors mt-6 
               ${
                 isSubmitting
-                  ? "bg-zinc-300 cursor-not-allowed"
+                  ? "bg-zinc-300 dark:bg-zinc-800 cursor-not-allowed dark:text-zinc-500"
                   : orderType === "BUY"
-                    ? "bg-red-500 hover:bg-red-600"
-                    : "bg-blue-500 hover:bg-blue-600"
+                    ? "bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700"
+                    : "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
               }`}
           >
             {isSubmitting

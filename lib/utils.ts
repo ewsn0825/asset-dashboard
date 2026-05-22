@@ -71,10 +71,10 @@ export const calculateStockProfitRate = (
 };
 
 /**
- * 7. 수익률에 따른 텍스트 색상 클래스 반환
+ * 7. 수익률에 따른 텍스트 색상 클래스 반환 (✅ 다크 모드 대응 추가)
  */
 export const getProfitColorClass = (profitRate: number) => {
-  if (profitRate > 0) return "text-rose-500";
-  if (profitRate < 0) return "text-blue-500";
-  return "text-zinc-500"; // 0% 일 때 중립 색상
+  if (profitRate > 0) return "text-rose-500 dark:text-rose-400";
+  if (profitRate < 0) return "text-blue-500 dark:text-blue-400";
+  return "text-zinc-500 dark:text-zinc-400"; // 0% 일 때 중립 색상
 };
