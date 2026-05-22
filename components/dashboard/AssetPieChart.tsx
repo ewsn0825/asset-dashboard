@@ -10,10 +10,11 @@ import {
   Tooltip,
 } from "recharts";
 import { useAssetStore } from "@/store/useAssetStore";
-import { useAssets } from "@/hooks/useAssets"; // ✅ 실제 API 훅 추가
+import { useAssets } from "@/hooks/useAssets";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
 import { PieChart as PieChartIcon } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton"; // ✅ 스켈레톤 추가
 
 const COLORS = [
   "#3182F6", // 블루
@@ -27,35 +28,56 @@ const COLORS = [
 export function AssetPieChart() {
   const activeTab = useAssetStore((state) => state.activeTab);
 
-  // ✅ 1. 실제 API 데이터 가져오기
-  const { data: assets = [] } = useAssets();
+  // ✅ 1. 로딩(isLoading)과 에러(isError) 상태 가져오기
+  const { data: assets = [], isLoading, isError } = useAssets();
 
-  // ✅ 2. 차트 데이터 변환 로직 (useMemo 활용)
   const chartData = useMemo(() => {
     return assets
       .filter((asset) => {
-        // 💡 [수정됨] CMA, ISA 탭에서는 예수금(cash-balance)이 파이 차트에 섞이지 않도록 완벽 차단
         if (activeTab === "CMA") {
           return asset.type === "CMA" && asset.id !== "cash-balance";
         }
         if (activeTab === "ISA") {
           return asset.type === "ISA" && asset.id !== "cash-balance";
         }
-
-        // 💡 [수정됨] 일반 탭: 주식과 예수금을 모두 '자산 비중' 파이 차트에 포함합니다.
-        // (만약 파이 차트에서 예수금을 빼고 순수 '주식 비중'만 그리고 싶다면,
-        // 아래 줄을 return asset.type === "DOMESTIC_STOCK" && asset.id !== "cash-balance"; 로 변경하세요!)
-        return asset.type === "DOMESTIC_STOCK" || asset.id === "cash-balance";
+        // 일반 탭일 경우: 주식과 예수금 모두 "DOMESTIC_STOCK" 타입으로 묶여있으므로 그대로 반환
+        return asset.type === "DOMESTIC_STOCK";
       })
       .map((asset) => ({
-        // Recharts 규격에 맞게 매핑
         name: asset.accountName,
         value: asset.balance,
       }))
-      .filter((item) => item.value > 0); // 금액이 0보다 큰 것만 표시
+      .filter((item) => item.value > 0);
   }, [assets, activeTab]);
 
-  // 자산 데이터가 없을 때의 Empty State
+  // ✅ 2. 에러 상태 UI
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[300px] w-full text-center bg-red-50 rounded-2xl border border-red-100">
+        <p className="text-sm text-red-500">
+          차트 데이터를 불러오지 못했습니다.
+        </p>
+      </div>
+    );
+  }
+
+  // ✅ 3. 로딩 상태 UI (스켈레톤) - 파이 차트 모양으로 구현
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[300px] w-full">
+        {/* 원형 차트 뼈대 */}
+        <Skeleton className="w-[150px] h-[150px] rounded-full bg-zinc-200/80" />
+        {/* 범례(Legend) 뼈대 */}
+        <div className="flex gap-4 mt-8">
+          <Skeleton className="w-16 h-4 bg-zinc-200/80" />
+          <Skeleton className="w-16 h-4 bg-zinc-200/80" />
+          <Skeleton className="w-16 h-4 bg-zinc-200/80" />
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ 4. 자산 데이터가 없을 때의 Empty State (모의투자 문구로 변경)
   if (chartData.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-[300px] w-full text-center">
@@ -63,15 +85,16 @@ export function AssetPieChart() {
           <PieChartIcon className="w-8 h-8 text-zinc-300" />
         </div>
         <p className="text-[15px] font-semibold text-zinc-600">
-          {activeTab} 계좌에 자산 데이터가 없습니다.
+          {activeTab} 모의투자 자산 데이터가 없습니다.
         </p>
         <p className="text-sm text-zinc-400 mt-1">
-          실제 계좌에 보유 중인 자산 비중이 이곳에 표시됩니다.
+          매수한 종목과 예수금 비중이 이곳에 표시됩니다.
         </p>
       </div>
     );
   }
 
+  // ✅ 5. 정상 렌더링 UI
   return (
     <Card className="border-none shadow-none bg-transparent w-full h-full">
       <CardContent className="w-full h-full p-0 flex flex-col justify-center">
@@ -86,6 +109,7 @@ export function AssetPieChart() {
               paddingAngle={4}
               dataKey="value"
               stroke="none"
+              isAnimationActive={true} // 애니메이션 활성화로 값이 바뀔 때 부드럽게 움직임
             >
               {chartData.map((_, index) => (
                 <Cell

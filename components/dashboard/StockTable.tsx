@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -10,12 +11,46 @@ import {
 } from "@/components/ui/table";
 import { useAssetStore } from "@/store/useAssetStore";
 import { useAssets } from "@/hooks/useAssets";
-import { Trash2, FileSearch } from "lucide-react";
+import { FileSearch } from "lucide-react"; // Trash2 제거
 import { formatCurrency, getProfitColorClass } from "@/lib/utils";
+
+// ✅ 장 시간 체크 함수 (한국 표준시 기준)
+const checkIsMarketOpen = () => {
+  const now = new Date();
+  const kstDate = new Date(
+    now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+  );
+  const day = kstDate.getDay();
+  const hours = kstDate.getHours();
+  const minutes = kstDate.getMinutes();
+  const currentTime = hours * 100 + minutes;
+
+  if (day === 0 || day === 6) return false;
+  if (currentTime >= 900 && currentTime <= 1530) return true;
+  return false;
+};
 
 export function StockTable() {
   const activeTab = useAssetStore((state) => state.activeTab);
   const { data: assets = [] } = useAssets();
+
+  // ✅ 1. 장 상태 관리 추가 (Hydration 에러 방지)
+  const [isMarketOpen, setIsMarketOpen] = useState(false);
+
+  useEffect(() => {
+    const initTimer = setTimeout(() => {
+      setIsMarketOpen(checkIsMarketOpen());
+    }, 0);
+
+    const interval = setInterval(() => {
+      setIsMarketOpen(checkIsMarketOpen());
+    }, 60000); // 1분마다 장 상태 체크
+
+    return () => {
+      clearTimeout(initTimer);
+      clearInterval(interval);
+    };
+  }, []);
 
   const currentStocks = assets.filter((asset) => {
     // 예수금은 주식 목록 테이블에서 무조건 제외
@@ -39,7 +74,8 @@ export function StockTable() {
           보유한 자산 내역이 없습니다.
         </p>
         <p className="text-sm text-zinc-400 mt-1">
-          실제 계좌에 보유 중인 종목이 이곳에 표시됩니다.
+          {/* ✅ 2. 문구를 모의투자에 맞게 수정 */}
+          모의투자 계좌에 보유 중인 종목이 이곳에 표시됩니다.
         </p>
       </div>
     );
@@ -68,7 +104,8 @@ export function StockTable() {
             <TableHead className="text-right font-semibold text-zinc-600 whitespace-nowrap">
               평가손익
             </TableHead>
-            <TableHead className="w-[50px]"></TableHead>
+            {/* 버튼이 들어갈 자리 너비 조정 */}
+            <TableHead className="w-[70px]"></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -113,16 +150,20 @@ export function StockTable() {
                   </div>
                 </TableCell>
                 <TableCell>
+                  {/* ✅ 3. 삭제 버튼 대신 주문(매매) 버튼으로 교체 및 활성화 로직 적용 */}
                   <button
                     onClick={() =>
-                      alert(
-                        "실제 증권 계좌의 종목은 HTS/MTS에서 매도해야 삭제됩니다.",
-                      )
+                      alert(`${stock.accountName} 매수/매도 폼을 띄웁니다!`)
                     }
-                    className="p-2 text-zinc-300 hover:text-zinc-500 hover:bg-zinc-100 rounded-lg transition-colors"
-                    title="종목 삭제 불가"
+                    disabled={!isMarketOpen}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      isMarketOpen
+                        ? "bg-zinc-900 text-white hover:bg-zinc-700" // 장 중: 활성화
+                        : "bg-zinc-100 text-zinc-400 cursor-not-allowed" // 장 마감: 비활성화
+                    }`}
+                    title={isMarketOpen ? "주문하기" : "장 마감으로 주문 불가"}
                   >
-                    <Trash2 className="w-[18px] h-[18px]" />
+                    주문
                   </button>
                 </TableCell>
               </TableRow>

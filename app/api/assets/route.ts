@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { redis } from "@/lib/redis"; // 👈 Redis 클라이언트 import 추가
+import { redis } from "@/lib/redis";
 
 interface KisStockItem {
   pdno: string;
@@ -12,24 +12,48 @@ interface KisStockItem {
   evlu_pfls_amt: string;
 }
 
+const checkIsMarketOpen = () => {
+  const now = new Date();
+  const kstDate = new Date(
+    now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+  );
+
+  const day = kstDate.getDay();
+  const hours = kstDate.getHours();
+  const minutes = kstDate.getMinutes();
+  const currentTime = hours * 100 + minutes;
+
+  if (day === 0 || day === 6) return false;
+  if (currentTime >= 900 && currentTime <= 1530) return true;
+
+  return false;
+};
+
 export async function GET() {
   try {
     const API_BASE = process.env.REAL_API_URL;
     const APP_KEY = process.env.APP_KEY || "";
     const APP_SECRET = process.env.APP_SECRET || "";
 
-    // 환경변수 공백 에러 방지
     const CANO = (process.env.ACCOUNT_NO || "").trim();
     const ACNT_PRDT_CD = (process.env.ACCOUNT_CODE || "").trim();
 
     const TR_ID = process.env.IS_MOCK === "true" ? "VTTC8434R" : "TTTC8434R";
 
     // --- STEP 1: 토큰 발급 및 Redis 캐싱 ---
-    const tokenCacheKey = "kis_access_token"; // Redis에 저장할 키 이름
+    // 원래 로직 복구
+    const tokenCacheKey =
+      process.env.IS_MOCK === "true"
+        ? "kis_mock_access_token"
+        : "kis_access_token";
+
     let accessToken = await redis.get<string>(tokenCacheKey);
 
-    // Redis에 캐싱된 토큰이 없는 경우에만 새로 발급
     if (!accessToken) {
+      console.log(
+        "🚀 [Redis Cache Miss]: KIS 서버로 새 엑세스 토큰을 요청합니다.",
+      );
+
       const tokenRes = await fetch(`${API_BASE}/oauth2/tokenP`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -49,8 +73,6 @@ export async function GET() {
       }
 
       accessToken = tokenData.access_token;
-
-      // Redis에 새 토큰 저장 (ex 옵션으로 23시간(82800초) 후 자동 만료 설정)
       await redis.set(tokenCacheKey, accessToken, { ex: 82800 });
     }
 
@@ -91,33 +113,47 @@ export async function GET() {
 
     // --- STEP 3: 데이터 정제 ---
     const formattedAssets = [];
+    const isMarketOpen = checkIsMarketOpen();
 
-    // 3-1. 주문가능 예수금 (D+2 기준)
     if (rawData.output2 && rawData.output2.length > 0) {
       const summary = rawData.output2[0];
       formattedAssets.push({
         id: "cash-balance",
-        type: "DOMESTIC_STOCK", // 일반 계좌 주식들과 그룹화
+        type: "DOMESTIC_STOCK",
         accountName: "주문가능 예수금",
-        balance: Number(summary.prvs_rcdl_excc_amt), // 실제 출금/주문 가능 금액
+        balance: Number(summary.prvs_rcdl_excc_amt),
         returnRate: 0,
       });
     }
 
-    // 3-2. 보유 주식
     if (rawData.output1 && rawData.output1.length > 0) {
       rawData.output1.forEach((item: KisStockItem) => {
-        if (Number(item.hldg_qty) > 0) {
+        const hldgQty = Number(item.hldg_qty);
+
+        if (hldgQty > 0) {
+          const avgPrice = Number(item.pchs_avg_pric);
+          let currentPrice = Number(item.prpr);
+
+          if (isMarketOpen) {
+            const randomFluctuation = 1 + (Math.random() * 0.02 - 0.01);
+            currentPrice = Math.round(currentPrice * randomFluctuation);
+          }
+
+          const balance = currentPrice * hldgQty;
+          const unrealizedProfit = balance - avgPrice * hldgQty;
+          const returnRate =
+            avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
+
           formattedAssets.push({
             id: item.pdno,
             type: "DOMESTIC_STOCK",
             accountName: item.prdt_name,
-            balance: Number(item.evlu_amt),
-            returnRate: Number(item.evlu_pfls_rt),
-            quantity: Number(item.hldg_qty),
-            avgPrice: Number(item.pchs_avg_pric),
-            currentPrice: Number(item.prpr),
-            unrealizedProfit: Number(item.evlu_pfls_amt),
+            balance: balance,
+            returnRate: Number(returnRate.toFixed(2)),
+            quantity: hldgQty,
+            avgPrice: avgPrice,
+            currentPrice: currentPrice,
+            unrealizedProfit: unrealizedProfit,
           });
         }
       });

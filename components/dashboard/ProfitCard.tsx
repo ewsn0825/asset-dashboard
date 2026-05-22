@@ -4,19 +4,18 @@ import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useAssetStore } from "@/store/useAssetStore";
-import { useAssets } from "@/hooks/useAssets"; // ✅ 실제 API 훅 추가
+import { useAssets } from "@/hooks/useAssets";
 import { getProfitColorClass, cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton"; // ✅ 스켈레톤 추가
 
 export function ProfitCard() {
   const activeTab = useAssetStore((state) => state.activeTab);
 
-  // ✅ 1. Zustand 대신 React Query 훅으로 실제 데이터를 가져옵니다.
-  const { data: assets = [] } = useAssets();
+  // ✅ 1. isLoading과 isError를 가져옵니다. (5초마다 자동 갱신됨)
+  const { data: assets = [], isLoading, isError } = useAssets();
 
-  // ✅ 2. 현재 탭에 맞는 자산만 필터링한 후 총 평가손익과 총 수익률을 계산합니다.
   const { unrealizedProfit, profitRate } = useMemo(() => {
     const filteredAssets = assets.filter((asset) => {
-      // 💡 [핵심 수정] 평가 손익과 수익률은 순수 '투자 종목' 기준이어야 하므로 예수금은 제외합니다.
       if (asset.id === "cash-balance") return false;
 
       if (activeTab === "CMA") return asset.type === "CMA";
@@ -28,13 +27,10 @@ export function ProfitCard() {
     let totalBalance = 0;
 
     filteredAssets.forEach((asset) => {
-      // API에서 받아온 각 종목의 평가손익과 평가금액을 합산합니다. (없을 경우 0 처리)
       totalProfit += asset.unrealizedProfit || 0;
       totalBalance += asset.balance || 0;
     });
 
-    // 전체 수익률 = (총 평가손익 / 총 투자원금) * 100
-    // 총 투자원금 = 총 평가금액 - 총 평가손익
     const totalPrincipal = totalBalance - totalProfit;
     const rate = totalPrincipal > 0 ? (totalProfit / totalPrincipal) * 100 : 0;
 
@@ -43,6 +39,31 @@ export function ProfitCard() {
       profitRate: rate,
     };
   }, [assets, activeTab]);
+
+  // ✅ 2. 에러 상태 UI
+  if (isError) {
+    return (
+      <Card className="rounded-2xl border-red-200 shadow-sm flex flex-col justify-center items-center h-[120px] bg-red-50">
+        <p className="text-sm text-red-500">데이터를 불러오지 못했습니다.</p>
+      </Card>
+    );
+  }
+
+  // ✅ 3. 로딩 상태 UI (스켈레톤) - TotalAssetCard와 디자인 통일
+  if (isLoading) {
+    return (
+      <Card className="rounded-2xl border-zinc-200/80 shadow-sm flex flex-col justify-between h-[120px] p-6">
+        <div className="flex justify-between items-center mb-2">
+          <Skeleton className="h-4 w-32 bg-zinc-200" />
+          <Skeleton className="h-4 w-4 rounded-full bg-zinc-200" />
+        </div>
+        <div className="flex items-end gap-2 mt-auto">
+          <Skeleton className="h-8 w-32 bg-zinc-200" />
+          <Skeleton className="h-5 w-16 bg-zinc-200" />
+        </div>
+      </Card>
+    );
+  }
 
   const ProfitIcon =
     unrealizedProfit > 0
@@ -54,11 +75,12 @@ export function ProfitCard() {
   const sign = unrealizedProfit > 0 ? "+" : unrealizedProfit < 0 ? "-" : "";
   const absProfit = Math.abs(unrealizedProfit);
 
+  // ✅ 4. 정상 렌더링 UI
   return (
     <Card className="rounded-2xl border-zinc-200/80 shadow-sm flex flex-col justify-between h-[120px]">
       <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
         <CardTitle className="text-sm font-medium text-zinc-500">
-          {activeTab} 계좌 평가 손익
+          {activeTab} 모의투자 평가 손익
         </CardTitle>
         <ProfitIcon
           className={cn("w-4 h-4", getProfitColorClass(unrealizedProfit))}
@@ -69,7 +91,7 @@ export function ProfitCard() {
         <div className="flex items-baseline gap-2 mt-1">
           <div
             className={cn(
-              "flex items-baseline gap-0.5 text-3xl font-bold tracking-tight",
+              "flex items-baseline gap-0.5 text-3xl font-bold tracking-tight transition-colors duration-300",
               getProfitColorClass(unrealizedProfit),
             )}
           >
@@ -79,7 +101,7 @@ export function ProfitCard() {
 
           <div
             className={cn(
-              "text-[15px] font-semibold",
+              "text-[15px] font-semibold transition-colors duration-300",
               getProfitColorClass(profitRate),
             )}
           >
