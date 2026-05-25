@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { debounce } from "lodash-es";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useAssetStore } from "@/store/useAssetStore";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAssets } from "@/hooks/useAssets";
 import {
   Dialog,
   DialogContent,
@@ -12,8 +12,12 @@ import {
   DialogTrigger,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { formatCurrency } from "@/lib/utils";
 
-// ✅ 서버 시간 차이(UTC)를 무시하고 KST(한국 표준시) 기준으로 장 시간 체크
+// ✅ 1. 외부 JSON 데이터 및 중앙 관리 타입 임포트
+import stockList from "@/data/stocks.json";
+import { StockItem } from "@/types";
+
 const checkIsMarketOpen = () => {
   const now = new Date();
   const kstDate = new Date(
@@ -34,80 +38,141 @@ export function AddStockModal() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMarketOpen, setIsMarketOpen] = useState(false);
 
-  // ✅ 매수(BUY) / 매도(SELL) 상태 추가
-  const [orderType, setOrderType] = useState<"BUY" | "SELL">("BUY");
-
   const [searchTerm, setSearchTerm] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [price, setPrice] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [selectedStock, setSelectedStock] = useState<StockItem | null>(null);
 
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [isPriceLoading, setIsPriceLoading] = useState(false);
+  const [quantity, setQuantity] = useState("");
+
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const activeTab = useAssetStore((state) => state.activeTab);
   const queryClient = useQueryClient();
+  const { data: assets = [] } = useAssets();
 
-  // 클라이언트 사이드 장 시간 갱신 (Hydration 방지)
+  const availableCash = useMemo(() => {
+    const cashAsset = assets.find((a) => a.id === "cash-balance");
+    return cashAsset ? cashAsset.balance : 0;
+  }, [assets]);
+
+  const totalAmount = useMemo(() => {
+    return (Number(quantity) || 0) * (currentPrice || 0);
+  }, [quantity, currentPrice]);
+
   useEffect(() => {
-    const initTimer = setTimeout(() => {
-      setIsMarketOpen(checkIsMarketOpen());
-    }, 0);
-
-    const interval = setInterval(() => {
-      setIsMarketOpen(checkIsMarketOpen());
-    }, 60000);
-
+    const initTimer = setTimeout(() => setIsMarketOpen(checkIsMarketOpen()), 0);
+    const interval = setInterval(
+      () => setIsMarketOpen(checkIsMarketOpen()),
+      60000,
+    );
     return () => {
       clearTimeout(initTimer);
       clearInterval(interval);
     };
   }, []);
 
-  const debouncedSearchRef = useRef(
-    debounce((query: string) => {
-      if (!query.trim()) return;
-      console.log(`🚀 [종목 검색 API 호출]: "${query}"`);
-    }, 500),
-  );
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchTerm(value);
-    debouncedSearchRef.current(value);
-  };
+  useEffect(() => {
+    if (!isOpen) {
+      const timer = setTimeout(() => {
+        setSearchTerm("");
+        setSelectedStock(null);
+        setCurrentPrice(null);
+        setQuantity("");
+        setIsDropdownOpen(false);
+        setIsSubmitting(false);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
-    return () => {
-      debouncedSearchRef.current.cancel();
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(event.target as Node)
+      ) {
+        setIsDropdownOpen(false);
+      }
     };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // ✅ 2. 시가총액(marketCap) 기준 내림차순 정렬 및 10개 제한
+  const filteredStocks = useMemo(() => {
+    if (!searchTerm) return [];
+    return stockList
+      .filter(
+        (stock) =>
+          stock.name.includes(searchTerm) || stock.id.includes(searchTerm),
+      )
+      .sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0)) // 내림차순 정렬
+      .slice(0, 10); // 상위 10개
+  }, [searchTerm]);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+    setSelectedStock(null);
+    setCurrentPrice(null);
+    setIsDropdownOpen(true);
+  };
+
+  const handleSelectStock = async (stock: StockItem) => {
+    setSearchTerm(stock.name);
+    setSelectedStock(stock);
+    setIsDropdownOpen(false);
+    setCurrentPrice(null);
+    setIsPriceLoading(true);
+
+    try {
+      const res = await fetch(`/api/price?id=${stock.id}`);
+      if (!res.ok) throw new Error("가격을 불러올 수 없습니다.");
+      const data = await res.json();
+      setCurrentPrice(data.price);
+    } catch (error) {
+      alert("현재가를 조회하는데 실패했습니다.");
+      setSelectedStock(null);
+      setSearchTerm("");
+    } finally {
+      setIsPriceLoading(false);
+    }
+  };
+
+  const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQuantity(e.target.value.replace(/[^0-9]/g, ""));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting || !isMarketOpen) return;
+    if (isSubmitting || !selectedStock || !currentPrice || !quantity) return;
 
-    if (!searchTerm || !price || !quantity) {
-      alert("종목명, 단가, 수량을 모두 입력해주세요.");
+    if (totalAmount > availableCash) {
+      alert(
+        `예수금이 부족합니다.\n필요 금액: ${formatCurrency(totalAmount)}원`,
+      );
       return;
     }
 
     setIsSubmitting(true);
-
     try {
-      // 1. 주문 체결 시뮬레이션 지연 (추후 진짜 POST /api/orders API로 교체)
-      await new Promise((resolve) => setTimeout(resolve, 600));
-
-      const orderTypeName = orderType === "BUY" ? "매수" : "매도";
-      alert(
-        `[모의투자] ${searchTerm} ${quantity}주가 ${Number(price).toLocaleString()}원에 ${orderTypeName} 체결되었습니다.`,
-      );
-
-      // 2. 💡 [핵심] "real" 대신 "mock" 쿼리키를 무효화하여 폴링 없이 즉각 대시보드를 갱신합니다.
-      await queryClient.invalidateQueries({ queryKey: ["assets", "mock"] });
-
-      // 3. 모달 및 폼 초기화
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: activeTab,
+          stockId: selectedStock.id,
+          orderType: "buy",
+          quantity: Number(quantity),
+          price: currentPrice,
+        }),
+      });
+      if (!response.ok) throw new Error("주문 처리 실패");
+      alert(`[체결 완료] ${selectedStock.name} 매수 완료!`);
+      await queryClient.invalidateQueries({ queryKey: ["assets"] });
       setIsOpen(false);
-      setSearchTerm("");
-      setQuantity("");
-      setPrice("");
-      setOrderType("BUY");
+    } catch (error) {
+      alert("주문 실패");
     } finally {
       setIsSubmitting(false);
     }
@@ -116,119 +181,57 @@ export function AddStockModal() {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        {/* ✅ 메인 화면 주문 버튼 다크모드 대응 */}
         <button
           disabled={!isMarketOpen}
-          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            isMarketOpen
-              ? "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-              : "bg-zinc-200 text-zinc-400 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-500"
-          }`}
+          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isMarketOpen ? "bg-zinc-900 text-white hover:bg-zinc-800" : "bg-zinc-200 cursor-not-allowed"}`}
         >
-          {isMarketOpen ? "주문하기 +" : "장 마감 (주문 불가)"}
+          {isMarketOpen ? "신규 매수 +" : "장 마감"}
         </button>
       </DialogTrigger>
 
-      {/* 💡 DialogContent에 명시적인 다크모드 배경 및 테두리 추가 */}
-      <DialogContent className="sm:max-w-[425px] rounded-2xl dark:bg-zinc-900 dark:border-zinc-800">
+      <DialogContent className="sm:max-w-[425px] rounded-2xl dark:bg-zinc-900 p-6">
         <DialogHeader>
-          <DialogTitle className="text-zinc-900 dark:text-zinc-100">
-            {activeTab} 모의투자 주문
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            모의투자 매수 및 매도 주문을 입력하는 폼입니다.
+          <DialogTitle>신규 매수</DialogTitle>
+          <DialogDescription>
+            종목을 검색하고 수량을 입력하세요.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
-          {/* ✅ 매수 / 매도 선택 탭 다크모드 대응 */}
-          <div className="flex p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg transition-colors">
-            <button
-              type="button"
-              onClick={() => setOrderType("BUY")}
-              className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-all ${
-                orderType === "BUY"
-                  ? "bg-white text-red-500 shadow-sm dark:bg-zinc-700 dark:text-red-400"
-                  : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-              }`}
-            >
-              매수
-            </button>
-            <button
-              type="button"
-              onClick={() => setOrderType("SELL")}
-              className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-all ${
-                orderType === "SELL"
-                  ? "bg-white text-blue-500 shadow-sm dark:bg-zinc-700 dark:text-blue-400"
-                  : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-              }`}
-            >
-              매도
-            </button>
+        <form onSubmit={handleSubmit} className="space-y-6 mt-4">
+          <div className="relative" ref={wrapperRef}>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={handleSearchChange}
+              placeholder="종목명 검색 (시총 높은 순)"
+              className="w-full p-3.5 bg-zinc-50 rounded-xl border border-zinc-200"
+            />
+            {isDropdownOpen && filteredStocks.length > 0 && (
+              <ul className="absolute z-10 w-full mt-2 bg-white border rounded-xl shadow-xl max-h-56 overflow-y-auto">
+                {filteredStocks.map((stock) => (
+                  <li
+                    key={stock.id}
+                    onClick={() => handleSelectStock(stock)}
+                    className="px-4 py-3 cursor-pointer hover:bg-zinc-100 flex justify-between"
+                  >
+                    <span className="font-bold">{stock.name}</span>
+                    <span className="text-zinc-400">{stock.id}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          {/* ✅ 입력 폼 다크모드 대응 (깊이감을 위해 bg-zinc-950 적용) */}
-          <div className="space-y-4 pt-2">
-            <div>
-              <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                종목 검색
-              </label>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={handleSearchChange}
-                placeholder="종목명 또는 종목코드 입력"
-                className="w-full mt-1.5 p-2.5 text-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700/60 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-400 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 transition-colors"
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  주문 단가
-                </label>
-                <input
-                  type="number"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  placeholder="0"
-                  className="w-full mt-1.5 p-2.5 text-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700/60 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-400 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 transition-colors"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  주문 수량
-                </label>
-                <input
-                  type="number"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  placeholder="0"
-                  className="w-full mt-1.5 p-2.5 text-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700/60 rounded-md focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-400 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 transition-colors"
-                  required
-                />
-              </div>
-            </div>
+          <div className="text-xl font-bold">
+            예상가: {currentPrice ? formatCurrency(totalAmount) : "-"} 원
           </div>
 
-          {/* ✅ 제출 버튼 다크모드 대응 */}
           <button
             type="submit"
-            disabled={isSubmitting}
-            className={`w-full py-3 rounded-lg text-white font-bold transition-colors mt-6 
-              ${
-                isSubmitting
-                  ? "bg-zinc-300 dark:bg-zinc-800 cursor-not-allowed dark:text-zinc-500"
-                  : orderType === "BUY"
-                    ? "bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700"
-                    : "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
-              }`}
+            disabled={isSubmitting || !currentPrice}
+            className="w-full py-4 bg-red-500 text-white rounded-xl font-bold"
           >
-            {isSubmitting
-              ? "주문 전송 중..."
-              : `${orderType === "BUY" ? "매수" : "매도"} 주문하기`}
+            {isSubmitting ? "주문 중..." : "매수 주문하기"}
           </button>
         </form>
       </DialogContent>
