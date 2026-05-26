@@ -14,7 +14,7 @@ import { useAssets } from "@/hooks/useAssets";
 import { FileSearch } from "lucide-react";
 import { formatCurrency, getProfitColorClass } from "@/lib/utils";
 import { OrderModal } from "@/components/OrderModal";
-import { Stock } from "@/types"; // ✅ 1. 정의해둔 Stock 타입을 불러옵니다.
+import { Stock } from "@/types";
 
 const checkIsMarketOpen = () => {
   const now = new Date();
@@ -33,11 +33,11 @@ const checkIsMarketOpen = () => {
 
 export function StockTable() {
   const activeTab = useAssetStore((state) => state.activeTab);
+
+  // 💡 낙관적 업데이트를 적용했으므로, isFetching을 통한 로딩 상태 감지가 더 이상 필요 없습니다.
   const { data: assets = [] } = useAssets();
 
   const [isMarketOpen, setIsMarketOpen] = useState(false);
-
-  // ✅ 2. any 대신 Stock | null 타입 지정 (에러 해결)
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
 
@@ -64,7 +64,6 @@ export function StockTable() {
   const cashAsset = assets.find((asset) => asset.id === "cash-balance");
   const availableCash = cashAsset ? cashAsset.balance : 0;
 
-  // ✅ 3. 매개변수 stock에 Stock 타입 지정 (에러 해결)
   const handleOpenOrder = (stock: Stock) => {
     setSelectedStock(stock);
     setIsOrderModalOpen(true);
@@ -87,11 +86,11 @@ export function StockTable() {
   }
 
   return (
+    // 💡 불필요해진 반투명 효과(opacity) 및 클릭 방지(pointer-events-none) 로직 제거
     <div className="w-full">
       {/* 📱 1. 모바일 뷰 (세로 리스트 형태) */}
       <div className="flex flex-col gap-4 md:hidden">
         {currentStocks.map((stock) => {
-          // 💡 타입 단언을 통해 Stock 객체로 안전하게 변환
           const typedStock = stock as Stock;
           const colorClass = getProfitColorClass(typedStock.returnRate);
 
@@ -118,7 +117,6 @@ export function StockTable() {
                 </button>
               </div>
 
-              {/* ✅ 생략되었던 하단 상세 렌더링 코드 복구 */}
               <div className="flex flex-col gap-2.5 text-[14px]">
                 <div className="flex justify-between items-center">
                   <span className="text-zinc-500 dark:text-zinc-400 text-xs">
@@ -175,7 +173,6 @@ export function StockTable() {
       <div className="hidden md:block rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm overflow-hidden h-full">
         <Table>
           <TableHeader className="bg-zinc-50/70 dark:bg-zinc-800/50">
-            {/* ✅ 생략되었던 테이블 헤더 복구 */}
             <TableRow className="border-b-zinc-200/80 dark:border-b-zinc-700/50 hover:bg-transparent">
               <TableHead className="font-semibold text-zinc-600 dark:text-zinc-400 whitespace-nowrap h-12">
                 종목명
@@ -208,7 +205,6 @@ export function StockTable() {
                   key={typedStock.id}
                   className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/50 transition-colors border-b-zinc-100 dark:border-b-zinc-800/60 last:border-0"
                 >
-                  {/* ✅ 생략되었던 테이블 셀 데이터 복구 */}
                   <TableCell className="font-medium py-3">
                     <div className="text-zinc-900 dark:text-zinc-100 font-bold transition-colors">
                       {typedStock.accountName}

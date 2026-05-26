@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
 
+// 💡 Next.js 캐싱 강제 비활성화: 호출될 때마다 무조건 최신 주식 가격을 가져오도록 설정
+export const dynamic = "force-dynamic";
+
 // 기존 Orders 라우트와 동일한 토큰 발급 로직
 async function getCachedAccessToken() {
   const API_BASE = process.env.REAL_API_URL;
@@ -24,7 +27,9 @@ async function getCachedAccessToken() {
       }),
     });
     const tokenData = await tokenRes.json();
+
     if (!tokenRes.ok) throw new Error("토큰 발급 실패");
+
     accessToken = tokenData.access_token;
     await redis.set(tokenCacheKey, accessToken, { ex: 82800 });
   }
@@ -43,12 +48,12 @@ export async function GET(request: Request) {
       );
     }
 
-    const API_BASE = process.env.REAL_API_URL;
+    const API_BASE = process.env.REAL_API_URL || "";
     const APP_KEY = process.env.APP_KEY || "";
     const APP_SECRET = process.env.APP_SECRET || "";
     const accessToken = await getCachedAccessToken();
 
-    // 💡 한국투자증권 '주식현재가 일자별' 또는 '주식현재가 시세' API 호출
+    // 한국투자증권 '주식현재가 시세' API 호출을 위한 쿼리 파라미터
     const queryParams = new URLSearchParams({
       FID_COND_MRKT_DIV_CODE: "J", // 주식, ETF
       FID_INPUT_ISCD: stockId, // 종목코드
@@ -71,6 +76,7 @@ export async function GET(request: Request) {
     const data = await priceRes.json();
 
     if (!priceRes.ok || data.rt_cd !== "0") {
+      console.error("🚀 [Price API Error]:", data.msg1 || data);
       throw new Error(data.msg1 || "가격 조회 실패");
     }
 
@@ -79,6 +85,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ price: currentPrice }, { status: 200 });
   } catch (error: unknown) {
+    console.error("🚀 [Price Route Error]:", error);
     const msg = error instanceof Error ? error.message : "서버 오류";
     return NextResponse.json({ message: msg }, { status: 500 });
   }

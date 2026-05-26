@@ -13,8 +13,11 @@ export function ProfitCard() {
   const { data: assets = [], isLoading, isError } = useAssets();
 
   const { unrealizedProfit, profitRate } = useMemo(() => {
+    // 💡 1. 순수 주식 수익률 계산을 위해 예수금(cash-balance)을 제외합니다.
     const filteredAssets = assets.filter((asset) => {
+      // 예수금은 수익률 계산에서 제외
       if (asset.id === "cash-balance") return false;
+
       if (activeTab === "CMA") return asset.type === "CMA";
       if (activeTab === "ISA") return asset.type === "ISA";
       return asset.type === "DOMESTIC_STOCK";
@@ -28,6 +31,11 @@ export function ProfitCard() {
       totalBalance += asset.balance || 0;
     });
 
+    // 💡 2. UX 개선: 지저분한 소수점을 깔끔하게 버림 처리합니다.
+    totalProfit = Math.floor(totalProfit);
+    totalBalance = Math.floor(totalBalance);
+
+    // 이제 totalPrincipal은 예수금을 제외한 '순수 주식 매입 금액'입니다.
     const totalPrincipal = totalBalance - totalProfit;
     const rate = totalPrincipal > 0 ? (totalProfit / totalPrincipal) * 100 : 0;
 
@@ -72,7 +80,6 @@ export function ProfitCard() {
 
   return (
     <Card className="rounded-2xl border-zinc-200/80 dark:border-zinc-800 dark:bg-zinc-900 shadow-sm flex flex-col h-full min-h-[150px] transition-colors duration-300 p-5 sm:p-6">
-      {/* 💡 1. 상단: 타이틀 + 평가 손익 금액 (위로 바짝 붙임) */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
@@ -96,12 +103,12 @@ export function ProfitCard() {
               colorClass,
             )}
           >
+            {/* 💡 소수점이 사라진 깔끔한 금액이 표시됩니다 */}
             {absProfit.toLocaleString()}
           </span>
         </div>
       </div>
 
-      {/* 💡 2. 하단: 수익률 뱃지 박스 (상태에 따라 컬러 배경 적용) */}
       <div className="mt-auto pt-5 w-full">
         <div
           className={cn(

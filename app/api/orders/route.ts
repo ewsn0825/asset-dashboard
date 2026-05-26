@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
 
-// 💡 1. Redis 기반 토큰 발급 및 캐싱 함수
+// 1. Redis 기반 토큰 발급 및 캐싱 함수
 async function getCachedAccessToken() {
   const API_BASE = process.env.REAL_API_URL;
   const APP_KEY = process.env.APP_KEY || "";
@@ -45,7 +45,7 @@ async function getCachedAccessToken() {
   return accessToken;
 }
 
-// 💡 2. [추가됨] KIS POST 요청 필수 항목인 Hashkey 발급 함수
+// 2. KIS POST 요청 필수 항목인 Hashkey 발급 함수
 async function getHashKey(
   bodyObj: object,
   apiBase: string,
@@ -72,7 +72,8 @@ export async function POST(request: Request) {
     const { stockId, orderType, quantity, price } = body;
 
     // 1. 필수 데이터 검증
-    if (!stockId || !orderType || !quantity || !price) {
+    // 💡 price가 0으로 넘어올 수 있으므로 undefined만 체크하도록 안전하게 수정
+    if (!stockId || !orderType || !quantity || price === undefined) {
       return NextResponse.json(
         { message: "주문 정보가 올바르지 않습니다." },
         { status: 400 },
@@ -97,20 +98,19 @@ export async function POST(request: Request) {
       trId = isMock ? "VTTC0801U" : "TTTC0801U"; // 모의 매도 vs 실전 매도
     }
 
-    // 4. [추가됨] 주문 데이터를 미리 구성하고 Hashkey를 먼저 발급받습니다.
-    // ※ 주의: 수량과 가격은 반드시 소수점 없는 정수형 문자열이어야 API 에러가 나지 않습니다.
+    // 4. 주문 데이터를 '시장가' 기준으로 구성합니다.
     const orderBody = {
       CANO: CANO,
       ACNT_PRDT_CD: ACNT_PRDT_CD,
       PDNO: stockId, // 종목코드
-      ORD_DVSN: "00", // 주문구분 (00: 지정가)
+      ORD_DVSN: "01", // 💡 주문구분 (01: 시장가)
       ORD_QTY: Math.floor(Number(quantity)).toString(), // 수량 (정수 변환)
-      ORD_UNPR: Math.floor(Number(price)).toString(), // 단가 (정수 변환)
+      ORD_UNPR: "0", // 💡 시장가 주문 시 단가는 반드시 "0"으로 세팅
     };
 
     const hashkey = await getHashKey(orderBody, API_BASE, APP_KEY, APP_SECRET);
 
-    // 5. 한국투자증권 주식 현금 주문 API 호출 (발급받은 hashkey 포함)
+    // 5. 한국투자증권 주식 현금 주문 API 호출
     const orderRes = await fetch(
       `${API_BASE}/uapi/domestic-stock/v1/trading/order-cash`,
       {
@@ -121,8 +121,8 @@ export async function POST(request: Request) {
           appkey: APP_KEY,
           appsecret: APP_SECRET,
           tr_id: trId,
-          custtype: "P", // 개인 고객 구분
-          hashkey: hashkey, // 💡 KIS 필수 요건: 발급받은 해쉬키 추가
+          custtype: "P",
+          hashkey: hashkey,
         },
         body: JSON.stringify(orderBody),
       },

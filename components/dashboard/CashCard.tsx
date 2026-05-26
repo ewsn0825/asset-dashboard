@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Coins } from "lucide-react";
 import { useAssetStore } from "@/store/useAssetStore";
@@ -33,6 +33,16 @@ export function CashCard() {
   const [customAmount, setCustomAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (!open) {
+      const timer = setTimeout(() => {
+        setCustomAmount("");
+        setIsSubmitting(false);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value.replace(/[^0-9]/g, "");
     if (!rawValue) {
@@ -48,21 +58,26 @@ export function CashCard() {
   };
 
   const handleCashUpdate = async (type: "deposit" | "withdraw") => {
+    if (isSubmitting) return;
+
     const amount = Number(customAmount.replace(/,/g, ""));
     if (amount <= 0) return alert("올바른 금액을 입력해주세요.");
     if (type === "withdraw" && amount > availableCash) {
-      return alert("출금 가능 금액(예수금)이 부족합니다.");
+      return alert("출금 가능 금액이 부족합니다.");
     }
+
     setIsSubmitting(true);
     try {
+      // (여기에 실제 서버 DB에 예수금을 업데이트하는 로직이 들어갑니다)
       await new Promise((resolve) => setTimeout(resolve, 500));
+
       const actionText = type === "deposit" ? "입금" : "출금";
       alert(
         `[모의투자] ${amount.toLocaleString()}원이 ${actionText} 처리되었습니다.`,
       );
-      await queryClient.invalidateQueries({ queryKey: ["assets", "mock"] });
-      setCustomAmount("");
+
       setOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
     } finally {
       setIsSubmitting(false);
     }
@@ -90,7 +105,6 @@ export function CashCard() {
 
   return (
     <Card className="rounded-2xl border-zinc-200/80 dark:border-zinc-800 dark:bg-zinc-900 shadow-sm flex flex-col h-full min-h-[150px] transition-colors duration-300 p-5 sm:p-6">
-      {/* 💡 1. 상단: 타이틀 + 예수금 금액 (위로 바짝 붙임) */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
@@ -108,7 +122,6 @@ export function CashCard() {
         </div>
       </div>
 
-      {/* 💡 2. 하단: 예수금 관리 버튼 (1,2번 카드 박스와 동일한 높이 선상 유지) */}
       <div className="mt-auto pt-5 w-full">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -130,9 +143,13 @@ export function CashCard() {
             </DialogHeader>
 
             <div className="space-y-5 sm:space-y-6 pt-2 sm:pt-4">
-              <div className="p-3 bg-zinc-50 text-zinc-500 dark:bg-zinc-800/50 dark:text-zinc-400 text-xs sm:text-sm rounded-lg border border-zinc-100 dark:border-zinc-700/60 transition-colors break-keep">
-                💡 <strong>안내:</strong> 모의투자 전용 예수금 충전 및 출금
-                기능입니다. 실제 계좌에는 반영되지 않습니다.
+              {/* 💡 사용자가 오해하지 않도록 '당일 출금(T+2 생략)'에 대한 명확한 안내를 추가했습니다. */}
+              <div className="p-3.5 bg-blue-50/50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 text-xs sm:text-[13px] leading-relaxed rounded-xl border border-blue-100/50 dark:border-blue-800/30 transition-colors break-keep">
+                <p className="font-semibold mb-1">💡 모의투자 당일 정산 안내</p>
+                본 모의투자 환경은 사용자 편의를 위해 실제 시장의 T+2
+                결제(2영업일 뒤 정산) 제도를 생략하고,{" "}
+                <strong>매도 대금을 즉시 출금할 수 있도록 구현</strong>
+                되었습니다.
               </div>
 
               <div className="relative">

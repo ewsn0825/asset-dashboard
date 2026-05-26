@@ -34,14 +34,13 @@ export function OrderModal({
   const [orderQuantity, setOrderQuantity] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ✅ 에러 해결: 모달이 '닫힐 때' 비동기적으로 상태를 씻어냅니다 (Clean-up)
   useEffect(() => {
     if (!isOpen) {
       const timer = setTimeout(() => {
         setOrderType("buy");
         setOrderQuantity("");
         setIsSubmitting(false);
-      }, 300); // 300ms: 모달 닫힘 애니메이션이 끝난 후 깔끔하게 초기화
+      }, 300);
 
       return () => clearTimeout(timer);
     }
@@ -49,7 +48,6 @@ export function OrderModal({
 
   if (!stock) return null;
 
-  // 💡 입력 수량 핸들러 (숫자만 입력 가능하도록 정제)
   const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value.replace(/[^0-9]/g, "");
     setOrderQuantity(rawValue);
@@ -61,12 +59,14 @@ export function OrderModal({
   };
 
   const handleOrderSubmit = async () => {
+    if (isSubmitting) return;
+
     const qty = Number(orderQuantity);
     if (qty <= 0) return alert("수량을 입력하세요.");
 
-    const totalOrderAmount = qty * (stock.currentPrice || 0);
+    const currentPrice = stock.currentPrice || 0;
+    const totalOrderAmount = qty * currentPrice;
 
-    // 유효성 검사
     if (orderType === "sell" && qty > (stock.quantity || 0))
       return alert("보유 수량 부족");
     if (orderType === "buy" && totalOrderAmount > availableCash)
@@ -82,18 +82,87 @@ export function OrderModal({
           stockId: stock.id,
           orderType,
           quantity: qty,
-          price: stock.currentPrice,
+          price: 0,
         }),
       });
 
-      if (!response.ok) throw new Error("주문 실패");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.message || "주문 실패");
+      }
 
-      alert(
-        `[체결] ${stock.accountName} ${qty}주 ${orderType === "buy" ? "매수" : "매도"} 완료`,
+      // 💡 [핵심] 완벽한 낙관적 업데이트 로직 (평단가 재계산 및 0주 삭제)
+      queryClient.setQueriesData(
+        { queryKey: ["assets"] },
+        (oldAssets: Stock[] | undefined) => {
+          if (!oldAssets) return oldAssets;
+
+          return (
+            oldAssets
+              .map((asset) => {
+                if (asset.id === stock.id) {
+                  const isBuy = orderType === "buy";
+                  const newQty = isBuy
+                    ? (asset.quantity || 0) + qty
+                    : (asset.quantity || 0) - qty;
+
+                  // 매도로 인해 수량이 0이 되면 대충 넘김 (어차피 아래 filter에서 삭제됨)
+                  if (newQty <= 0) return { ...asset, quantity: 0 };
+
+                  // 평단가 계산 (매수 시에만 평단가가 섞이고, 매도 시에는 기존 평단가 유지)
+                  const oldAvgPrice = asset.avgPrice || 0;
+                  const newAvgPrice = isBuy
+                    ? ((asset.quantity || 0) * oldAvgPrice +
+                        qty * currentPrice) /
+                      newQty
+                    : oldAvgPrice;
+
+                  // 새로운 평가금액, 손익, 수익률 계산
+                  const newBalance = newQty * currentPrice;
+                  const newPrincipal = newQty * newAvgPrice;
+                  const newUnrealizedProfit = newBalance - newPrincipal;
+                  const newReturnRate =
+                    newPrincipal > 0
+                      ? (newUnrealizedProfit / newPrincipal) * 100
+                      : 0;
+
+                  return {
+                    ...asset,
+                    quantity: newQty,
+                    balance: newBalance,
+                    avgPrice: newAvgPrice,
+                    unrealizedProfit: newUnrealizedProfit,
+                    returnRate: newReturnRate,
+                  };
+                }
+
+                if (asset.id === "cash-balance") {
+                  return {
+                    ...asset,
+                    balance:
+                      orderType === "buy"
+                        ? asset.balance - totalOrderAmount
+                        : asset.balance + totalOrderAmount,
+                  };
+                }
+                return asset;
+              })
+              // 💡 UX 버그 해결: 수량이 0이 된 종목은 배열에서 즉시 제거!
+              .filter(
+                (asset) =>
+                  asset.id === "cash-balance" ||
+                  (asset.quantity !== undefined && asset.quantity > 0),
+              )
+          );
+        },
       );
 
-      await queryClient.invalidateQueries({ queryKey: ["assets"] });
-      onClose(); // 성공 시 모달 닫기
+      alert(
+        `[체결 완료] ${stock.accountName} ${qty}주 ${orderType === "buy" ? "매수" : "매도"} 완료`,
+      );
+
+      onClose();
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
     } catch (e: unknown) {
       if (e instanceof Error) {
         alert(`❌ 주문 실패: ${e.message}`);
@@ -110,7 +179,7 @@ export function OrderModal({
       <DialogContent className="w-[92vw] sm:max-w-[400px] rounded-2xl p-5 sm:p-6 dark:bg-zinc-900 dark:border-zinc-800">
         <DialogHeader>
           <DialogTitle className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-zinc-100 text-left">
-            {stock.accountName} 주문
+            {stock.accountName} 주문 (시장가)
           </DialogTitle>
           <DialogDescription className="text-left text-sm text-zinc-500 dark:text-zinc-400">
             현재가:{" "}
@@ -122,7 +191,6 @@ export function OrderModal({
         </DialogHeader>
 
         <div className="space-y-5 sm:space-y-6 pt-2">
-          {/* 매수/매도 탭 버튼 */}
           <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl">
             <button
               onClick={() => setOrderType("buy")}
@@ -146,7 +214,6 @@ export function OrderModal({
             </button>
           </div>
 
-          {/* 수량 입력창 */}
           <div className="relative">
             <Input
               type="text"
@@ -161,7 +228,6 @@ export function OrderModal({
             </span>
           </div>
 
-          {/* 퀵 수량 버튼 */}
           <div className="flex gap-1.5 sm:gap-2">
             {[1, 10, 50, 100].map((qty) => (
               <button
@@ -175,10 +241,9 @@ export function OrderModal({
             ))}
           </div>
 
-          {/* 예상 체결 금액 표시 */}
           <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl flex justify-between items-center border border-zinc-100 dark:border-zinc-700/60">
             <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-              총 예상 금액
+              총 예상 금액 (현재가 기준)
             </span>
             <span className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
               {formatCurrency(
@@ -187,7 +252,6 @@ export function OrderModal({
             </span>
           </div>
 
-          {/* 하단 주문 실행 버튼 */}
           <Button
             onClick={handleOrderSubmit}
             disabled={
