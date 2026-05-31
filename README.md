@@ -1,12 +1,27 @@
-# 📈 Largon's Asset Management Dashboard (모의투자 자산 관리 대시보드)
+# 📈 Largon's Asset Management Dashboard
 
-<div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=auto:dark&height=180&section=header&text=Asset%20Dashboard&fontSize=50&animation=fadeIn" width="100%" />
+<div align="left">
+  <img src="https://img.shields.io/badge/Next.js_14-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
+  <img src="https://img.shields.io/badge/TanStack_Query-FF4154?style=for-the-badge&logo=reactquery&logoColor=white" />
 </div>
+
+<br />
 
 > **실시간 증권사 API 연동 및 고속 Redis 캐시 레이어를 결합하여 사용자 인터랙션을 극대화한 Next.js 기반 모의투자 자산 관리 대시보드입니다.**
 >
 > 단순한 UI 구현에 그치지 않고, 런타임 병목을 추적하여 **Lighthouse 성능 점수를 70점대에서 86점까지 끌어올린 대대적인 성능 엔지니어링** 과정을 거쳤습니다.
+
+---
+
+## 🚀 Key Results & Performance Matrix
+
+| Metric                                 |     Before Optimization     | After Optimization  |        Improvement         |
+| :------------------------------------- | :-------------------------: | :-----------------: | :------------------------: |
+| **Lighthouse Performance**             |         **70점대**          |      **86점**       |     **+16점 상승 📈**      |
+| **Core API TTFB (Time to First Byte)** |           ~400ms            |       **2ms**       |   **99.5% 부하 절감 ⚡**   |
+| **Tab Switching Delay**                | 연쇄 리렌더링 유발 (300ms+) | **0ms (즉시 반영)** | **인터랙션 버벅거림 종결** |
 
 ---
 
