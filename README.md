@@ -1,13 +1,4 @@
-# 📈 Largon's Asset Management Dashboard
-
-<div align="left">
-  <img src="https://img.shields.io/badge/Next.js_14-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" />
-  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
-  <img src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
-  <img src="https://img.shields.io/badge/TanStack_Query-FF4154?style=for-the-badge&logo=reactquery&logoColor=white" />
-</div>
-
-<br />
+# 📈 Largon's Asset Management Dashboard (모의투자 자산 관리 대시보드)
 
 > **실시간 증권사 API 연동 및 고속 Redis 캐시 레이어를 결합하여 사용자 인터랙션을 극대화한 Next.js 기반 모의투자 자산 관리 대시보드입니다.**
 >
@@ -25,31 +16,21 @@
 
 ---
 
-## 🚀 Key Results & Performance Matrix
-
-| Metric                                 |     Before Optimization     | After Optimization  |        Improvement         |
-| :------------------------------------- | :-------------------------: | :-----------------: | :------------------------: |
-| **Lighthouse Performance**             |         **70점대**          |      **86점**       |     **+16점 상승 📈**      |
-| **Core API TTFB (Time to First Byte)** |           ~400ms            |       **2ms**       |   **99.5% 부하 절감 ⚡**   |
-| **Tab Switching Delay**                | 연쇄 리렌더링 유발 (300ms+) | **0ms (즉시 반영)** | **인터랙션 버벅거림 종결** |
-
----
-
 ## 🛠 Tech Stack
 
 ### Frontend
 
-- **Framework:** Next.js 14 (App Router)
-- **Language:** TypeScript
+- **Framework:** Next.js 14 (App Router) <img src="https://img.shields.io/badge/Next.js_14-000000?style=flat-square&logo=nextdotjs&logoColor=white" valign="middle" />
+- **Language:** TypeScript <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" valign="middle" />
 - **State Management:** Zustand
-- **Data Fetching:** TanStack Query (React Query v5)
+- **Data Fetching:** TanStack Query (React Query v5) <img src="https://img.shields.io/badge/TanStack_Query-FF4154?style=flat-square&logo=reactquery&logoColor=white" valign="middle" />
 - **Styling:** Tailwind CSS, Shadcn UI
 - **Charts:** Recharts
 
 ### Backend & Infrastructure
 
 - **Server:** Next.js Route Handlers
-- **Database / Cache:** Redis (Upstash)
+- **Database / Cache:** Redis (Upstash) <img src="https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white" valign="middle" />
 - **External API:** 한국투자증권(KIS) 오픈 API
 
 ---
@@ -62,7 +43,7 @@
    - 보유 종목 수량에 관계없이 평가금액이 높은 순, 수익률이 높은 순 등 실시간 증권사 규격 가이드라인에 맞춘 TOP 5 종목 우선 노출 및 '더보기' UI 스케줄링.
 3. **정밀 평단가 실시간 재계산 & 낙관적 업데이트 (Optimistic Update)**
    - 신규 매수/매도 주문 전송 즉시, 백엔드 응답을 기다리지 않고 프론트엔드 단에서 평단가 공식을 역산하고 잔고를 갱신하여 0ms 체결 사용자 경험 제공.
-4. **반응형 고성능 돈차트 구현**
+4. **반응형 고성능 도넛 차트 구현**
    - 테마(다크/라이트) 스왑 타이밍 및 런타임 하이드레이션 오류를 원천 차단한 `ResizeObserver` 기반 동적 픽셀 비중 차트 구축.
 
 ---
@@ -85,7 +66,7 @@
 ### 3. Recharts `ResponsiveContainer` 하이드레이션 에러 및 렌더링 타이밍 이슈
 
 - **문제 상황:** Next.js App Router 환경에서 Recharts의 `<ResponsiveContainer>`를 사용할 때, 서버 프리렌더링 단계에서 부모 요소의 너비를 측정하지 못해 `width(-1) and height(-1) of chart should be greater than 0` 경고가 콘솔과 개발 터미널을 더럽히는 고질적인 버그 발생.
-- **해결 방법:** 경고의 주범인 `ResponsiveContainer`를 과감히 들어내고, 브라우저 표준 Native API인 **`ResizeObserver`**를 커스텀 훅 레이어로 구축. 부모 컨테이너의 가로 폭 픽셀을 React 상태로 직접 유도하고, 치수 측정 전 단계에는 차트 마운트를 엄격히 정지시킴으로써 레이아웃 시프트(CLS) 및 라이브러리 추적 타이밍 경고를 완전 박멸함.
+- **해결 방법:** 경고의 주범인 `ResponsiveContainer`를 과감히 들어내고, 브라우저 표준 Native API인 **`ResizeObserver`**를 사용하여 픽셀 단위 감지 레이어 구축. `for (const entry of entries)` 루프를 통해 안전한 상수로 부모 컨테이너의 가로 폭을 실시간 계측하고, 치수 측정 전 단계에는 차트 마운트를 엄격히 제한함으로써 레이아웃 시프트(CLS) 및 라이브러리 타이밍 에러를 완전 박멸함.
 
 ### 4. 장외 시간(야간/주말) 자산 ₩0 노출 데이터 싱크 오류
 
