@@ -12,7 +12,7 @@ import { AccountType } from "@/types";
 import { useAssets } from "@/hooks/useAssets";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-// 🏎️ [성능 최적화 1] 차트 내부 픽셀 계측 가드와 싱크를 맞추기 위해 ssr: false로 미세 정돈
+// 🏎️ [성능 최적화 1] ssr: false 옵션 유지
 const AssetPieChart = dynamic(
   () => import("@/components/dashboard").then((mod) => mod.AssetPieChart),
   { ssr: false },
@@ -26,15 +26,14 @@ const AddStockModal = dynamic(
   { ssr: false },
 );
 
-// 🏎️ [성능 최적화 2] 렌더링 스코프 외부로 고정 배열 분리
-// 컴포넌트가 아무리 리렌더링되어도 메모리 재할당이 발생하지 않고 단 한 번만 참조됩니다.
+// 🏎️ [성능 최적화 2] 렌더링 스코프 외부 격리 고정
 const TABS: AccountType[] = ["일반", "ISA", "CMA"];
 
 export default function Home() {
   const activeTab = useAssetStore((state) => state.activeTab);
   const setActiveTab = useAssetStore((state) => state.setActiveTab);
 
-  // 탭 상태를 훅에 직접 주입하여 고속 캐싱 레이어(select) 작동 연동
+  // 탭 상태를 훅에 직접 주입하여 고속 캐싱 레이어 연동
   const { isLoading: isApiLoading, isError, refetch } = useAssets(activeTab);
 
   // API 첫 진입 시 최초 로딩 레이아웃 (Layout Shift 방지 스켈레톤)
@@ -112,7 +111,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 2. 탭 UI 영역 (모바일 가속 클래스 touch-pan-x 정밀 반영) */}
+        {/* 2. 탭 UI 영역 */}
         <div className="w-full overflow-x-auto scrollbar-none snap-x touch-pan-x overscroll-x-contain">
           <div className="inline-flex bg-zinc-100 dark:bg-zinc-800/50 p-1 rounded-full transition-colors min-w-max">
             {TABS.map((tab) => (
@@ -141,12 +140,15 @@ export default function Home() {
 
         {/* 4. 하단 메인 콘텐츠 (차트 & 테이블) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start pb-10">
-          {/* 4-1. 파이 차트 */}
+          {/* 4-1. 파이 차트 영역 */}
           <div className="lg:col-span-1">
             <h2 className="text-base md:text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-3 md:mb-4 px-1">
               {activeTab} 자산 비중
             </h2>
-            <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 shadow-sm w-full relative transition-all duration-300 h-[300px] md:h-[350px]">
+            {/* 🛠️ [버그 완벽 박멸] 기존 고정 높이 h-[300px] md:h-[350px]를 과감히 제거했습니다!
+                대신 h-auto와 min-h-max를 부여하여 내부의 금융 앱 스타일 레이아웃(좌우 분할 및 데이터 카드들)이 
+                짤리는 일 없이 콘텐츠 크기에 맞추어 유연하고 완벽하게 늘어나도록 숨통을 틔워줍니다. */}
+            <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 shadow-sm w-full relative transition-all duration-300 h-auto min-h-max">
               <AssetPieChart />
             </div>
           </div>

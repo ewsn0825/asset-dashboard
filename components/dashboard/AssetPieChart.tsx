@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useEffect, useRef } from "react";
-// 🏎️ [성능 최적화 1] 에러의 주범인 ResponsiveContainer를 걷어내고 정밀 픽셀 주입 체계로 전환
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useAssetStore } from "@/store/useAssetStore";
 import { useAssets } from "@/hooks/useAssets";
@@ -15,9 +14,8 @@ import { useChartColors } from "@/hooks/useChartColors";
 export function AssetPieChart() {
   const activeTab = useAssetStore((state) => state.activeTab);
 
-  // 🏎️ 부모 컨테이너의 정적 너비를 추적하여 Recharts에 고정 수치로 꽂아줄 ref와 상태
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 240 });
+  const [dimensions, setDimensions] = useState({ width: 0, height: 200 });
 
   const {
     data: currentTabAssets = [],
@@ -27,7 +25,6 @@ export function AssetPieChart() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  // 🏎️ [성능 최적화 2] 브라우저 레이아웃 확정 시점에 단 한 번만 정확한 가로 폭 계측 (하드웨어 가속)
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -36,7 +33,7 @@ export function AssetPieChart() {
         const { width } = entry.contentRect;
         setDimensions({
           width: Math.floor(width),
-          height: 240, // 대시보드 그리드 가이드라인 높이 고정
+          height: 200,
         });
       }
     });
@@ -45,22 +42,40 @@ export function AssetPieChart() {
     return () => resizeObserver.disconnect();
   }, []);
 
-  // 데이터 파이프라인 정제
+  // 금융앱 데이터 파이프라인: TOP 4 외 나머지는 '기타 종목'으로 합산
   const chartData = useMemo(() => {
-    return currentTabAssets
+    const validAssets = currentTabAssets
       .filter(
         (asset) => asset.id !== "cash-balance" && (asset.balance || 0) > 0,
       )
       .map((asset) => ({
         name: asset.accountName,
         value: asset.balance,
-      }));
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    if (validAssets.length <= 5) return validAssets;
+
+    const topAssets = validAssets.slice(0, 4);
+    const otherBalance = validAssets
+      .slice(4)
+      .reduce((sum, item) => sum + item.value, 0);
+
+    return [...topAssets, { name: "기타 종목", value: otherBalance }];
   }, [currentTabAssets]);
 
-  // 차트 데이터 길이에 따른 템플릿 색상 배열 추출
   const COLORS = useChartColors(chartData.length);
 
-  // 서버 사이드 및 API 페칭 단계 가드
+  // 반응형 크기 최적 제어 수치 계산
+  const { innerRadius, outerRadius } = useMemo(() => {
+    const mobileMode = dimensions.width > 0 && dimensions.width < 450;
+    if (mobileMode) {
+      return { innerRadius: 42, outerRadius: 62 };
+    }
+    // 데스크톱에서도 위아래 구조로 배치되므로 공간이 넉넉해져 반지름을 조금 더 키웁니다.
+    return { innerRadius: 60, outerRadius: 85 };
+  }, [dimensions.width]);
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[260px] w-full">
@@ -86,26 +101,28 @@ export function AssetPieChart() {
 
   return (
     <Card className="border-none shadow-none bg-transparent w-full h-full">
-      <CardContent className="w-full h-full p-0 flex flex-col justify-center gap-4">
-        {/* 부모 상대 좌표 기준 래퍼 */}
+      {/* 🛠️ [수정] grid 속성을 제거하고 모바일/데스크톱 모두에서 상하 배치가 되도록 flex-col 구조로 변경했습니다. */}
+      <CardContent className="w-full h-full p-0 flex flex-col items-center justify-center gap-6">
+        {/* 🛠️ 상단: 도넛 차트 영역 */}
         <div
           ref={containerRef}
-          className="w-full h-[240px] relative flex items-center justify-center"
+          style={{ height: `${dimensions.height}px` }}
+          className="w-full relative flex items-center justify-center"
         >
-          {/* 🌟 [경고 완전 박멸] 가로 폭 크기가 정수 픽셀로 확정 계산되었을 때만 차트 엔진 렌더링
-              ResponsiveContainer 내부 탐색 오류가 물리적으로 일어날 수 없는 안전지대를 구축합니다. */}
           {dimensions.width > 0 && (
-            <PieChart width={dimensions.width} height={dimensions.height}>
+            <PieChart
+              width={dimensions.width}
+              height={dimensions.height}
+              margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
+            >
               <Pie
-                // 🌟 [유지보수 고도화] key에 테마 테그를 동적으로 조합합니다.
-                // 라이트 ➡️ 다크 테마 전환 순간 차트 노드가 동기적으로 새로 구워지며 색상 지연 버그가 청소됩니다.
                 key={`pie-${resolvedTheme}`}
                 data={chartData}
                 cx="50%"
                 cy="50%"
-                innerRadius="60%"
-                outerRadius="80%"
-                paddingAngle={3}
+                innerRadius={innerRadius}
+                outerRadius={outerRadius}
+                paddingAngle={2.5}
                 dataKey="value"
                 stroke="none"
                 isAnimationActive={true}
@@ -135,22 +152,39 @@ export function AssetPieChart() {
           )}
         </div>
 
-        {/* 하단 종목명 범례 영역 */}
-        <div className="flex flex-wrap justify-center gap-x-3 gap-y-2.5 px-2 pb-2">
-          {chartData.map((entry, index) => (
-            <div
-              key={entry.name}
-              className="flex items-center text-[13px] font-medium text-zinc-600 dark:text-zinc-400"
-            >
-              <span
-                className="w-2.5 h-2.5 rounded-full mr-1.5 flex-shrink-0"
-                style={{ backgroundColor: COLORS[index % COLORS.length] }}
-              />
-              <span className="truncate max-w-[100px] md:max-w-[120px]">
-                {entry.name}
-              </span>
-            </div>
-          ))}
+        {/* 🛠️ 하단: 토스증권 스타일 리스트 범례 영역 */}
+        {/* 이제 차트 밑으로 내려왔기 때문에 가로폭 전체를 활용하여 텍스트가 잘리지 않습니다. */}
+        <div className="w-full flex flex-col gap-2 px-1">
+          {chartData.map((entry, index) => {
+            const total = chartData.reduce((sum, item) => sum + item.value, 0);
+            const percentage = ((entry.value / total) * 100).toFixed(1);
+
+            return (
+              <div
+                key={entry.name}
+                className="flex items-center justify-between text-[13px] font-semibold text-zinc-700 dark:text-zinc-300 bg-zinc-50/50 dark:bg-zinc-800/20 p-2.5 rounded-xl border border-zinc-100 dark:border-zinc-800/40 w-full"
+              >
+                <div className="flex items-center min-w-0 mr-2">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full mr-2.5 flex-shrink-0"
+                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                  />
+                  {/* 🛠️ [수정] 텍스트 생략 유발 인자(truncate, max-w)를 제거하여 글자가 온전하게 보이도록 처리했습니다. */}
+                  <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                    {entry.name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2.5 flex-shrink-0 text-right">
+                  <span className="text-zinc-400 text-xs font-normal">
+                    {percentage}%
+                  </span>
+                  <span className="text-zinc-900 dark:text-zinc-100 font-semibold">
+                    {formatCurrency(entry.value)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </CardContent>
     </Card>
