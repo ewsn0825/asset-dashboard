@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { useMemo, useState, useEffect, useRef } from "react";
+// 🏎️ [성능 최적화 1] 에러의 주범인 ResponsiveContainer를 걷어내고 정밀 픽셀 주입 체계로 전환
+import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useAssetStore } from "@/store/useAssetStore";
 import { useAssets } from "@/hooks/useAssets";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,33 +10,57 @@ import { formatCurrency } from "@/lib/utils";
 import { PieChart as PieChartIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTheme } from "next-themes";
-import { useChartColors } from "@/hooks/useChartColors"; // 💡 분리한 훅 사용
+import { useChartColors } from "@/hooks/useChartColors";
 
 export function AssetPieChart() {
   const activeTab = useAssetStore((state) => state.activeTab);
-  const { data: assets = [], isLoading, isError } = useAssets();
+
+  // 🏎️ 부모 컨테이너의 정적 너비를 추적하여 Recharts에 고정 수치로 꽂아줄 ref와 상태
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 240 });
+
+  const {
+    data: currentTabAssets = [],
+    isLoading,
+    isError,
+  } = useAssets(activeTab);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
+  // 🏎️ [성능 최적화 2] 브라우저 레이아웃 확정 시점에 단 한 번만 정확한 가로 폭 계측 (하드웨어 가속)
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width } = entry.contentRect;
+        setDimensions({
+          width: Math.floor(width),
+          height: 240, // 대시보드 그리드 가이드라인 높이 고정
+        });
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  // 데이터 파이프라인 정제
   const chartData = useMemo(() => {
-    return assets
-      .filter((asset) => {
-        // 예수금을 제외하고 주식/상품 자산만 필터링
-        if (asset.id === "cash-balance") return false;
-        if (activeTab === "CMA") return asset.type === "CMA";
-        if (activeTab === "ISA") return asset.type === "ISA";
-        return asset.type === "DOMESTIC_STOCK";
-      })
+    return currentTabAssets
+      .filter(
+        (asset) => asset.id !== "cash-balance" && (asset.balance || 0) > 0,
+      )
       .map((asset) => ({
         name: asset.accountName,
         value: asset.balance,
-      }))
-      .filter((item) => item.value > 0);
-  }, [assets, activeTab]);
+      }));
+  }, [currentTabAssets]);
 
-  // 💡 훅에서 색상 배열 생성
+  // 차트 데이터 길이에 따른 템플릿 색상 배열 추출
   const COLORS = useChartColors(chartData.length);
 
+  // 서버 사이드 및 API 페칭 단계 가드
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[260px] w-full">
@@ -53,7 +78,7 @@ export function AssetPieChart() {
         <p className="text-[15px] font-semibold text-zinc-600 dark:text-zinc-300">
           {isError
             ? "데이터를 불러오지 못했습니다."
-            : `${activeTab} 데이터가 없습니다.`}
+            : `${activeTab} 계좌에 보유 중인 종목이 없습니다.`}
         </p>
       </div>
     );
@@ -62,10 +87,19 @@ export function AssetPieChart() {
   return (
     <Card className="border-none shadow-none bg-transparent w-full h-full">
       <CardContent className="w-full h-full p-0 flex flex-col justify-center gap-4">
-        <div className="w-full h-[220px] md:h-[260px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
+        {/* 부모 상대 좌표 기준 래퍼 */}
+        <div
+          ref={containerRef}
+          className="w-full h-[240px] relative flex items-center justify-center"
+        >
+          {/* 🌟 [경고 완전 박멸] 가로 폭 크기가 정수 픽셀로 확정 계산되었을 때만 차트 엔진 렌더링
+              ResponsiveContainer 내부 탐색 오류가 물리적으로 일어날 수 없는 안전지대를 구축합니다. */}
+          {dimensions.width > 0 && (
+            <PieChart width={dimensions.width} height={dimensions.height}>
               <Pie
+                // 🌟 [유지보수 고도화] key에 테마 테그를 동적으로 조합합니다.
+                // 라이트 ➡️ 다크 테마 전환 순간 차트 노드가 동기적으로 새로 구워지며 색상 지연 버그가 청소됩니다.
+                key={`pie-${resolvedTheme}`}
                 data={chartData}
                 cx="50%"
                 cy="50%"
@@ -74,9 +108,13 @@ export function AssetPieChart() {
                 paddingAngle={3}
                 dataKey="value"
                 stroke="none"
+                isAnimationActive={true}
               >
                 {chartData.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index]} />
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={COLORS[index % COLORS.length]}
+                  />
                 ))}
               </Pie>
               <Tooltip
@@ -94,9 +132,10 @@ export function AssetPieChart() {
                 }}
               />
             </PieChart>
-          </ResponsiveContainer>
+          )}
         </div>
 
+        {/* 하단 종목명 범례 영역 */}
         <div className="flex flex-wrap justify-center gap-x-3 gap-y-2.5 px-2 pb-2">
           {chartData.map((entry, index) => (
             <div
@@ -104,10 +143,12 @@ export function AssetPieChart() {
               className="flex items-center text-[13px] font-medium text-zinc-600 dark:text-zinc-400"
             >
               <span
-                className="w-2.5 h-2.5 rounded-full mr-1.5"
-                style={{ backgroundColor: COLORS[index] }}
+                className="w-2.5 h-2.5 rounded-full mr-1.5 flex-shrink-0"
+                style={{ backgroundColor: COLORS[index % COLORS.length] }}
               />
-              {entry.name}
+              <span className="truncate max-w-[100px] md:max-w-[120px]">
+                {entry.name}
+              </span>
             </div>
           ))}
         </div>

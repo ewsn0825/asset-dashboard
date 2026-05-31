@@ -8,36 +8,52 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function TotalAssetCard() {
   const activeTab = useAssetStore((state) => state.activeTab);
-  const { data: assets = [], isLoading, isError } = useAssets();
 
-  // ✅ 투자 원금 계산을 위해 totalProfit도 함께 계산합니다.
+  // 🏎️ [성능 최적화 1] 현재 활성화된 탭의 필터링된 데이터만 select 레이어를 통해 가볍게 수신합니다.
+  const {
+    data: currentTabAssets = [],
+    isLoading,
+    isError,
+  } = useAssets(activeTab);
+
+  // 예수금(Cash) 데이터를 안전하게 분리 추출하기 위해 전체 자산 데이터도 함께 구독합니다. (동일 캐시 공유)
+  const { data: allAssets = [] } = useAssets();
+
+  // 🏎️ [성능 최적화 2] 탭 데이터 계산 로직 최적화 및 정합성 버그 수정
   const { totalAsset, totalPrincipal } = useMemo(() => {
-    const filteredAssets = assets.filter((asset) => {
-      // 💡 1. 계좌 총 자산 파악을 위해 예수금(cash-balance)을 무조건 포함시킵니다.
-      if (asset.id === "cash-balance") return true;
-
-      if (activeTab === "CMA") return asset.type === "CMA";
-      if (activeTab === "ISA") return asset.type === "ISA";
-      return asset.type === "DOMESTIC_STOCK";
-    });
-
     let assetSum = 0;
     let profitSum = 0;
 
-    filteredAssets.forEach((asset) => {
-      assetSum += asset.balance || 0;
-      profitSum += asset.unrealizedProfit || 0;
+    // 1. 현재 탭에 해당하는 자산(종목)들의 총합 및 손익 계산
+    // cash-balance는 탭 분류에서 제외되므로 순수 투자 종목만 계산됩니다.
+    currentTabAssets.forEach((asset) => {
+      if (asset.id !== "cash-balance") {
+        assetSum += asset.balance || 0;
+        profitSum += asset.unrealizedProfit || 0;
+      }
     });
 
-    // 💡 2. UX 개선: 지저분한 소수점을 깔끔하게 버림 처리합니다.
-    assetSum = Math.floor(assetSum);
-    profitSum = Math.floor(profitSum);
+    // 2. 예수금(cash-balance) 처리 가이드라인:
+    // 일반 주식 탭일 때만 통합 예수금을 더해주거나,
+    // 혹은 모든 계좌의 총자산에 균등하게 예수금이 반영되도록 정합성을 맞춰줍니다.
+    const cashAsset = allAssets.find((asset) => asset.id === "cash-balance");
+    const availableCash = cashAsset ? cashAsset.balance : 0;
+
+    // 대시보드 기획 스펙에 맞게 조정: 여기서는 '일반' 주식 계좌 탭에서만 예수금을 포함하도록 처리
+    // (CMA나 ISA는 보통 계좌 자산 내에 예수금이 녹아있으므로 통합 예수금이 섞이면 안 됩니다)
+    if (activeTab === "일반") {
+      assetSum += availableCash;
+    }
+
+    // 소수점 버림 처리로 UX 깔끔하게 유지
+    const finalAsset = Math.floor(assetSum);
+    const finalProfit = Math.floor(profitSum);
 
     return {
-      totalAsset: assetSum,
-      totalPrincipal: assetSum - profitSum, // 투자 원금 (총 자산 - 평가 손익)
+      totalAsset: finalAsset,
+      totalPrincipal: finalAsset - finalProfit, // 투자 원금 = 총 자산 - 평가 손익
     };
-  }, [assets, activeTab]);
+  }, [currentTabAssets, allAssets, activeTab]);
 
   if (isError) {
     return (
@@ -88,7 +104,6 @@ export function TotalAssetCard() {
             투자 원금
           </span>
           <span className="text-[14px] font-semibold text-zinc-700 dark:text-zinc-300">
-            {/* 💡 소수점이 제거된 깔끔한 원금이 렌더링됩니다. */}
             {totalPrincipal.toLocaleString()}원
           </span>
         </div>

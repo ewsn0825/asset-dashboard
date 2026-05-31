@@ -5,37 +5,38 @@ import { Card } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useAssetStore } from "@/store/useAssetStore";
 import { useAssets } from "@/hooks/useAssets";
-import { getProfitColorClass, cn } from "@/lib/utils";
+import { getProfitColorClass, cn, formatCurrency } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function ProfitCard() {
   const activeTab = useAssetStore((state) => state.activeTab);
-  const { data: assets = [], isLoading, isError } = useAssets();
 
+  // 🏎️ [성능 최적화 1] select가 적용된 훅을 사용하여 현재 탭의 필터링된 데이터만 서브셋으로 수신
+  const {
+    data: currentTabAssets = [],
+    isLoading,
+    isError,
+  } = useAssets(activeTab);
+
+  // 🏎️ [성능 최적화 2] 데이터 순회 최소화 및 수익률 계산 메모이제이션
   const { unrealizedProfit, profitRate } = useMemo(() => {
-    // 💡 1. 순수 주식 수익률 계산을 위해 예수금(cash-balance)을 제외합니다.
-    const filteredAssets = assets.filter((asset) => {
-      // 예수금은 수익률 계산에서 제외
-      if (asset.id === "cash-balance") return false;
-
-      if (activeTab === "CMA") return asset.type === "CMA";
-      if (activeTab === "ISA") return asset.type === "ISA";
-      return asset.type === "DOMESTIC_STOCK";
-    });
-
     let totalProfit = 0;
     let totalBalance = 0;
 
-    filteredAssets.forEach((asset) => {
-      totalProfit += asset.unrealizedProfit || 0;
-      totalBalance += asset.balance || 0;
+    // 이미 주입된 탭 데이터(`currentTabAssets`)에는 cash-balance가 없거나 정돈되어 있으므로
+    // 불필요한 filter 연산 없이 바로 순회합니다.
+    currentTabAssets.forEach((asset) => {
+      if (asset.id !== "cash-balance") {
+        totalProfit += asset.unrealizedProfit || 0;
+        totalBalance += asset.balance || 0;
+      }
     });
 
-    // 💡 2. UX 개선: 지저분한 소수점을 깔끔하게 버림 처리합니다.
+    // 지저분한 소수점 절사 처리
     totalProfit = Math.floor(totalProfit);
     totalBalance = Math.floor(totalBalance);
 
-    // 이제 totalPrincipal은 예수금을 제외한 '순수 주식 매입 금액'입니다.
+    // 순수 주식 매입 금액 계산 (총 자산 - 평가 손익)
     const totalPrincipal = totalBalance - totalProfit;
     const rate = totalPrincipal > 0 ? (totalProfit / totalPrincipal) * 100 : 0;
 
@@ -43,7 +44,7 @@ export function ProfitCard() {
       unrealizedProfit: totalProfit,
       profitRate: rate,
     };
-  }, [assets, activeTab]);
+  }, [currentTabAssets]);
 
   if (isError) {
     return (
@@ -65,6 +66,7 @@ export function ProfitCard() {
     );
   }
 
+  // UI 표현 가독성 변수 정의
   const ProfitIcon =
     unrealizedProfit > 0
       ? TrendingUp
@@ -72,8 +74,6 @@ export function ProfitCard() {
         ? TrendingDown
         : Minus;
 
-  const sign = unrealizedProfit > 0 ? "+" : unrealizedProfit < 0 ? "-" : "";
-  const absProfit = Math.abs(unrealizedProfit);
   const colorClass = getProfitColorClass(unrealizedProfit);
   const isPositive = unrealizedProfit > 0;
   const isNegative = unrealizedProfit < 0;
@@ -88,23 +88,16 @@ export function ProfitCard() {
           <ProfitIcon className={cn("w-4 h-4 flex-shrink-0", colorClass)} />
         </div>
 
+        {/* ⚙️ UI 개선: 기호 표시 방식 정돈 (+/-가 통화 기호와 자연스럽게 결합) */}
         <div className="flex items-baseline gap-1 overflow-hidden">
-          <span
-            className={cn(
-              "text-xl sm:text-2xl font-medium opacity-75 flex-shrink-0",
-              colorClass,
-            )}
-          >
-            {sign}₩
-          </span>
           <span
             className={cn(
               "text-2xl sm:text-3xl font-bold tracking-tight truncate",
               colorClass,
             )}
           >
-            {/* 💡 소수점이 사라진 깔끔한 금액이 표시됩니다 */}
-            {absProfit.toLocaleString()}
+            {isPositive ? "+" : ""}
+            {formatCurrency(unrealizedProfit)}
           </span>
         </div>
       </div>

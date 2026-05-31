@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { Stock } from "@/types";
 import {
   Dialog,
@@ -34,30 +34,33 @@ export function OrderModal({
   const [orderQuantity, setOrderQuantity] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!isOpen) {
-      const timer = setTimeout(() => {
-        setOrderType("buy");
-        setOrderQuantity("");
-        setIsSubmitting(false);
-      }, 300);
+  // 🏎️ 모달 내부 상태 일괄 리셋 유틸 함수
+  const resetFormFields = () => {
+    setOrderType("buy");
+    setOrderQuantity("");
+    setIsSubmitting(false);
+  };
 
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen]);
+  // 예상 체결 금액 메모이제이션
+  const totalOrderAmount = useMemo(() => {
+    return (Number(orderQuantity) || 0) * (stock?.currentPrice || 0);
+  }, [orderQuantity, stock?.currentPrice]);
 
   if (!stock) return null;
 
+  // 숫자 전용 수량 핸들러
   const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value.replace(/[^0-9]/g, "");
-    setOrderQuantity(rawValue);
+    setOrderQuantity(rawValue === "0" ? "" : rawValue.replace(/^0+/, ""));
   };
 
+  // 퀵 주수 증감 버튼
   const addQuickQuantity = (amount: number) => {
     const currentQty = Number(orderQuantity) || 0;
     setOrderQuantity(String(currentQty + amount));
   };
 
+  // 주문 전송 핸들러
   const handleOrderSubmit = async () => {
     if (isSubmitting) return;
 
@@ -65,12 +68,13 @@ export function OrderModal({
     if (qty <= 0) return alert("수량을 입력하세요.");
 
     const currentPrice = stock.currentPrice || 0;
-    const totalOrderAmount = qty * currentPrice;
 
-    if (orderType === "sell" && qty > (stock.quantity || 0))
-      return alert("보유 수량 부족");
-    if (orderType === "buy" && totalOrderAmount > availableCash)
-      return alert("예수금 부족");
+    if (orderType === "sell" && qty > (stock.quantity || 0)) {
+      return alert("보유 수량이 부족합니다.");
+    }
+    if (orderType === "buy" && totalOrderAmount > availableCash) {
+      return alert("예수금이 부족합니다.");
+    }
 
     setIsSubmitting(true);
     try {
@@ -82,7 +86,7 @@ export function OrderModal({
           stockId: stock.id,
           orderType,
           quantity: qty,
-          price: 0,
+          price: 0, // 백엔드 시장가 규칙
         }),
       });
 
@@ -91,78 +95,71 @@ export function OrderModal({
         throw new Error(errorData?.message || "주문 실패");
       }
 
-      // 💡 [핵심] 완벽한 낙관적 업데이트 로직 (평단가 재계산 및 0주 삭제)
+      // 🏎️ 낙관적 업데이트 고유 쿼리 키 명밀 매칭 (["assets", "mock"])
       queryClient.setQueriesData(
-        { queryKey: ["assets"] },
+        { queryKey: ["assets", "mock"] },
         (oldAssets: Stock[] | undefined) => {
           if (!oldAssets) return oldAssets;
 
-          return (
-            oldAssets
-              .map((asset) => {
-                if (asset.id === stock.id) {
-                  const isBuy = orderType === "buy";
-                  const newQty = isBuy
-                    ? (asset.quantity || 0) + qty
-                    : (asset.quantity || 0) - qty;
+          return oldAssets
+            .map((asset) => {
+              if (asset.id === stock.id) {
+                const isBuy = orderType === "buy";
+                const newQty = isBuy
+                  ? (asset.quantity || 0) + qty
+                  : (asset.quantity || 0) - qty;
 
-                  // 매도로 인해 수량이 0이 되면 대충 넘김 (어차피 아래 filter에서 삭제됨)
-                  if (newQty <= 0) return { ...asset, quantity: 0 };
+                if (newQty <= 0) return { ...asset, quantity: 0 };
 
-                  // 평단가 계산 (매수 시에만 평단가가 섞이고, 매도 시에는 기존 평단가 유지)
-                  const oldAvgPrice = asset.avgPrice || 0;
-                  const newAvgPrice = isBuy
-                    ? ((asset.quantity || 0) * oldAvgPrice +
-                        qty * currentPrice) /
-                      newQty
-                    : oldAvgPrice;
+                const oldAvgPrice = asset.avgPrice || 0;
+                const newAvgPrice = isBuy
+                  ? ((asset.quantity || 0) * oldAvgPrice + qty * currentPrice) /
+                    newQty
+                  : oldAvgPrice;
 
-                  // 새로운 평가금액, 손익, 수익률 계산
-                  const newBalance = newQty * currentPrice;
-                  const newPrincipal = newQty * newAvgPrice;
-                  const newUnrealizedProfit = newBalance - newPrincipal;
-                  const newReturnRate =
-                    newPrincipal > 0
-                      ? (newUnrealizedProfit / newPrincipal) * 100
-                      : 0;
+                const newBalance = newQty * currentPrice;
+                const newPrincipal = newQty * newAvgPrice;
+                const newUnrealizedProfit = newBalance - newPrincipal;
+                const newReturnRate =
+                  newPrincipal > 0
+                    ? (newUnrealizedProfit / newPrincipal) * 100
+                    : 0;
 
-                  return {
-                    ...asset,
-                    quantity: newQty,
-                    balance: newBalance,
-                    avgPrice: newAvgPrice,
-                    unrealizedProfit: newUnrealizedProfit,
-                    returnRate: newReturnRate,
-                  };
-                }
+                return {
+                  ...asset,
+                  quantity: newQty,
+                  balance: newBalance,
+                  avgPrice: newAvgPrice,
+                  unrealizedProfit: newUnrealizedProfit,
+                  returnRate: newReturnRate,
+                };
+              }
 
-                if (asset.id === "cash-balance") {
-                  return {
-                    ...asset,
-                    balance:
-                      orderType === "buy"
-                        ? asset.balance - totalOrderAmount
-                        : asset.balance + totalOrderAmount,
-                  };
-                }
-                return asset;
-              })
-              // 💡 UX 버그 해결: 수량이 0이 된 종목은 배열에서 즉시 제거!
-              .filter(
-                (asset) =>
-                  asset.id === "cash-balance" ||
-                  (asset.quantity !== undefined && asset.quantity > 0),
-              )
-          );
+              if (asset.id === "cash-balance") {
+                return {
+                  ...asset,
+                  balance:
+                    orderType === "buy"
+                      ? asset.balance - totalOrderAmount
+                      : asset.balance + totalOrderAmount,
+                };
+              }
+              return asset;
+            })
+            .filter(
+              (asset) =>
+                asset.id === "cash-balance" ||
+                (asset.quantity !== undefined && asset.quantity > 0),
+            );
         },
       );
 
       alert(
         `[체결 완료] ${stock.accountName} ${qty}주 ${orderType === "buy" ? "매수" : "매도"} 완료`,
       );
-
       onClose();
-      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      resetFormFields();
+      queryClient.invalidateQueries({ queryKey: ["assets", "mock"] });
     } catch (e: unknown) {
       if (e instanceof Error) {
         alert(`❌ 주문 실패: ${e.message}`);
@@ -174,25 +171,44 @@ export function OrderModal({
     }
   };
 
+  {
+    /* 🛠️ [린트 에러 완벽 해결] 
+        부수 효과 유발 영역인 useEffect를 과감히 제거하고, 
+        Dialog가 유저에 의해 명시적으로 닫히는(nextOpen이 false가 되는) 시점에 
+        부모의 onClose 호출과 내부 필드 일괄 리셋을 싱글 스케줄로 묶어 처리합니다. */
+  }
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          onClose();
+          resetFormFields();
+        }
+      }}
+    >
       <DialogContent className="w-[92vw] sm:max-w-[400px] rounded-2xl p-5 sm:p-6 dark:bg-zinc-900 dark:border-zinc-800">
         <DialogHeader>
           <DialogTitle className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-zinc-100 text-left">
             {stock.accountName} 주문 (시장가)
           </DialogTitle>
-          <DialogDescription className="text-left text-sm text-zinc-500 dark:text-zinc-400">
+          <DialogDescription className="sr-only">
+            시장가로 해당 주식을 매수하거나 매도하는 창입니다.
+          </DialogDescription>
+          <div className="text-left text-sm text-zinc-500 dark:text-zinc-400 mt-1">
             현재가:{" "}
             <span className="font-bold text-blue-500 dark:text-blue-400">
               {formatCurrency(stock.currentPrice || 0)}
-            </span>
+            </span>{" "}
             원
-          </DialogDescription>
+          </div>
         </DialogHeader>
 
         <div className="space-y-5 sm:space-y-6 pt-2">
+          {/* 매수/매도 탭 스위치 */}
           <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl">
             <button
+              type="button"
               onClick={() => setOrderType("buy")}
               className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${
                 orderType === "buy"
@@ -203,6 +219,7 @@ export function OrderModal({
               매수
             </button>
             <button
+              type="button"
               onClick={() => setOrderType("sell")}
               className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${
                 orderType === "sell"
@@ -214,6 +231,7 @@ export function OrderModal({
             </button>
           </div>
 
+          {/* 수량 인풋 필드 */}
           <div className="relative">
             <Input
               type="text"
@@ -228,6 +246,7 @@ export function OrderModal({
             </span>
           </div>
 
+          {/* 수량 가산 퀵 버튼 */}
           <div className="flex gap-1.5 sm:gap-2">
             {[1, 10, 50, 100].map((qty) => (
               <button
@@ -241,17 +260,17 @@ export function OrderModal({
             ))}
           </div>
 
+          {/* 최종 정산 영수증 영역 */}
           <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl flex justify-between items-center border border-zinc-100 dark:border-zinc-700/60">
             <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
               총 예상 금액 (현재가 기준)
             </span>
             <span className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              {formatCurrency(
-                (Number(orderQuantity) || 0) * (stock.currentPrice || 0),
-              )}
+              {formatCurrency(totalOrderAmount)} 원
             </span>
           </div>
 
+          {/* 최종 액션 버튼 */}
           <Button
             onClick={handleOrderSubmit}
             disabled={

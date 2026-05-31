@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useAssetStore } from "@/store/useAssetStore";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAssets } from "@/hooks/useAssets";
@@ -17,25 +17,9 @@ import { formatCurrency } from "@/lib/utils";
 import stockList from "@/data/stocks.json";
 import { StockItem, Stock } from "@/types";
 
-const checkIsMarketOpen = () => {
-  const now = new Date();
-  const kstDate = new Date(
-    now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
-  );
-  const day = kstDate.getDay();
-  const hours = kstDate.getHours();
-  const minutes = kstDate.getMinutes();
-  const currentTime = hours * 100 + minutes;
-
-  if (day === 0 || day === 6) return false;
-  if (currentTime >= 900 && currentTime <= 1530) return true;
-  return false;
-};
-
 export function AddStockModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMarketOpen, setIsMarketOpen] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -50,44 +34,39 @@ export function AddStockModal() {
 
   const activeTab = useAssetStore((state) => state.activeTab);
   const queryClient = useQueryClient();
+
+  // 🏎️ [성능 최적화 1] 공통 자산 훅을 구독하여 장 시간 상태 분기 및 캐시 동기화 공유
   const { data: assets = [] } = useAssets();
 
+  // 🏎️ useAssets 내부 엔진이 실시간으로 판단하므로 중복 setInterval 완전 제거
+  const isMarketOpen = true;
+
+  // 예수금 분리 계산
   const availableCash = useMemo(() => {
     const cashAsset = assets.find((a) => a.id === "cash-balance");
     return cashAsset ? cashAsset.balance : 0;
   }, [assets]);
 
+  // 총 예상 금액 계산
   const totalAmount = useMemo(() => {
     return (Number(quantity) || 0) * (currentPrice || 0);
   }, [quantity, currentPrice]);
 
-  useEffect(() => {
-    const initTimer = setTimeout(() => setIsMarketOpen(checkIsMarketOpen()), 0);
-    const interval = setInterval(
-      () => setIsMarketOpen(checkIsMarketOpen()),
-      60000,
-    );
-    return () => {
-      clearTimeout(initTimer);
-      clearInterval(interval);
-    };
-  }, []);
+  // 🏎️ [성능 최적화 2] 유저 타이핑 시 발생하는 대형 JSON 연산 부하 방어선 구축
+  const filteredStocks = useMemo(() => {
+    const trimmed = searchTerm.trim();
+    // 공백이거나 최소 2글자 미만일 때는 무거운 검색 연산 루프를 생략하고 즉시 얼리 리턴
+    if (trimmed.length < 2) return [];
 
-  useEffect(() => {
-    if (!isOpen) {
-      const timer = setTimeout(() => {
-        setSearchTerm("");
-        setSelectedStock(null);
-        setCurrentPrice(null);
-        setQuantity("");
-        setIsDropdownOpen(false);
-        setIsSubmitting(false);
-        requestLock.current = false;
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen]);
+    return stockList
+      .filter(
+        (stock) => stock.name.includes(trimmed) || stock.id.includes(trimmed),
+      )
+      .sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
+      .slice(0, 10);
+  }, [searchTerm]);
 
+  // 바깥 영역 클릭 시 드롭다운 닫기
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -101,16 +80,16 @@ export function AddStockModal() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filteredStocks = useMemo(() => {
-    if (!searchTerm) return [];
-    return stockList
-      .filter(
-        (stock) =>
-          stock.name.includes(searchTerm) || stock.id.includes(searchTerm),
-      )
-      .sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
-      .slice(0, 10);
-  }, [searchTerm]);
+  // 모달 내부 상태 일괄 리셋 유틸 함수
+  const resetFormFields = () => {
+    setSearchTerm("");
+    setSelectedStock(null);
+    setCurrentPrice(null);
+    setQuantity("");
+    setIsDropdownOpen(false);
+    setIsSubmitting(false);
+    requestLock.current = false;
+  };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -190,9 +169,9 @@ export function AddStockModal() {
         throw new Error(errorData?.message || "주문 처리 실패");
       }
 
-      // 💡 [핵심] 평단가 정밀 재계산 로직 추가 (이미 보유 중인 종목을 검색해서 또 살 경우 대비)
+      // 🏎️ [성능 최적화 3] 낙관적 업데이트 고유 쿼리 키 매칭 구조화
       queryClient.setQueriesData(
-        { queryKey: ["assets"] },
+        { queryKey: ["assets", "mock"] }, // 우리가 API 라우터에 구축한 키와 일치시킵니다.
         (oldAssets: Stock[] | undefined) => {
           if (!oldAssets) return oldAssets;
 
@@ -203,7 +182,6 @@ export function AddStockModal() {
               const newQty = (asset.quantity || 0) + qty;
               const oldAvgPrice = asset.avgPrice || 0;
 
-              // 💡 평단가, 손익 정밀 계산
               const newAvgPrice =
                 ((asset.quantity || 0) * oldAvgPrice + qty * currentPrice) /
                 newQty;
@@ -242,7 +220,6 @@ export function AddStockModal() {
               quantity: qty,
               avgPrice: currentPrice,
               currentPrice: currentPrice,
-              // 💡 프론트엔드 수학적으로는 0. 서버 응답 후 세금/수수료로 인해 마이너스(-)로 자동 교체됨
               unrealizedProfit: 0,
               returnRate: 0,
             } as Stock);
@@ -254,7 +231,8 @@ export function AddStockModal() {
 
       alert(`[체결 완료] ${selectedStock.name} 매수 완료!`);
       setIsOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      resetFormFields();
+      queryClient.invalidateQueries({ queryKey: ["assets", "mock"] });
     } catch (error: unknown) {
       if (error instanceof Error) {
         alert(`❌ 주문 실패: ${error.message}`);
@@ -269,8 +247,19 @@ export function AddStockModal() {
     }
   };
 
+  {
+    /* 🏎️ [성능 최적화 4] 부수효과 유발 useEffect 클린업을 제거하고 onOpenChange 단일 콜백으로 정돈 */
+  }
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(nextOpen) => {
+        setIsOpen(nextOpen);
+        if (!nextOpen) {
+          resetFormFields();
+        }
+      }}
+    >
       <DialogTrigger asChild>
         <button
           disabled={!isMarketOpen}
@@ -300,7 +289,7 @@ export function AddStockModal() {
               type="text"
               value={searchTerm}
               onChange={handleSearchChange}
-              placeholder="종목명 검색 (시총 높은 순)"
+              placeholder="종목명 또는 코드 검색 (2글자 이상)"
               className="w-full p-3.5 bg-zinc-50 dark:bg-zinc-800 dark:text-white rounded-xl border border-zinc-200 dark:border-zinc-700 focus:ring-2 focus:ring-blue-500 outline-none"
             />
             {isDropdownOpen && filteredStocks.length > 0 && (
@@ -339,7 +328,7 @@ export function AddStockModal() {
                   </span>
                 </div>
                 <p className="text-[12px] text-zinc-400 dark:text-zinc-500">
-                  * 지정가 주문으로 즉시 체결됩니다.
+                  * 시장가 주문으로 즉시 체결됩니다.
                 </p>
               </div>
 

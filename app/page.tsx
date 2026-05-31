@@ -1,38 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   TotalAssetCard,
   ProfitCard,
   CashCard,
   StockTable,
-  AssetPieChart,
 } from "@/components/dashboard";
-import { AddStockModal } from "@/components/dashboard/AddStockModal"; // ✅ 1. 신규 매수 모달 임포트 (경로 확인 필요)
 import { useAssetStore } from "@/store/useAssetStore";
 import { AccountType } from "@/types";
 import { useAssets } from "@/hooks/useAssets";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
+// 🏎️ [성능 최적화 1] 차트 내부 픽셀 계측 가드와 싱크를 맞추기 위해 ssr: false로 미세 정돈
+const AssetPieChart = dynamic(
+  () => import("@/components/dashboard").then((mod) => mod.AssetPieChart),
+  { ssr: false },
+);
+
+const AddStockModal = dynamic(
+  () =>
+    import("@/components/dashboard/AddStockModal").then(
+      (mod) => mod.AddStockModal,
+    ),
+  { ssr: false },
+);
+
+// 🏎️ [성능 최적화 2] 렌더링 스코프 외부로 고정 배열 분리
+// 컴포넌트가 아무리 리렌더링되어도 메모리 재할당이 발생하지 않고 단 한 번만 참조됩니다.
+const TABS: AccountType[] = ["일반", "ISA", "CMA"];
+
 export default function Home() {
-  const [isReady, setIsReady] = useState(false);
-
-  const { isLoading: isApiLoading, isError, refetch } = useAssets();
-
   const activeTab = useAssetStore((state) => state.activeTab);
   const setActiveTab = useAssetStore((state) => state.setActiveTab);
 
-  const TABS: AccountType[] = ["일반", "ISA", "CMA"];
+  // 탭 상태를 훅에 직접 주입하여 고속 캐싱 레이어(select) 작동 연동
+  const { isLoading: isApiLoading, isError, refetch } = useAssets(activeTab);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsReady(true);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // ✅ 로딩 상태 (반응형 스켈레톤 최적화 - Layout Shift 방지)
-  if (!isReady || isApiLoading) {
+  // API 첫 진입 시 최초 로딩 레이아웃 (Layout Shift 방지 스켈레톤)
+  if (isApiLoading) {
     return (
       <main className="min-h-screen bg-[#f8f9fa] dark:bg-zinc-950 py-6 md:py-10 px-4 sm:px-6 md:px-8 transition-colors duration-300">
         <div className="max-w-[1200px] mx-auto space-y-8 animate-pulse">
@@ -63,7 +69,7 @@ export default function Home() {
     );
   }
 
-  // ✅ 에러 상태 UI
+  // 데이터 통신 에러 레이아웃
   if (isError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f8f9fa] dark:bg-zinc-950 transition-colors duration-300 px-4">
@@ -85,7 +91,6 @@ export default function Home() {
     );
   }
 
-  // ✅ 정상 렌더링 UI
   return (
     <main className="min-h-screen bg-[#f8f9fa] dark:bg-zinc-950 py-6 md:py-10 px-4 sm:px-6 md:px-8 transition-colors duration-300">
       <div className="max-w-[1200px] mx-auto space-y-6 md:space-y-8">
@@ -102,18 +107,18 @@ export default function Home() {
               실시간으로 연동되는 모의투자 환경에서 투자 실력을 테스트해 보세요.
             </p>
           </div>
-          {/* 테마 토글 버튼: 모바일에서 우측 상단 고정 */}
           <div className="pt-1 flex-shrink-0">
             <ThemeToggle />
           </div>
         </div>
 
-        {/* 2. 탭 UI 영역 (스크롤바 완벽 숨김) */}
-        <div className="w-full overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        {/* 2. 탭 UI 영역 (모바일 가속 클래스 touch-pan-x 정밀 반영) */}
+        <div className="w-full overflow-x-auto scrollbar-none snap-x touch-pan-x overscroll-x-contain">
           <div className="inline-flex bg-zinc-100 dark:bg-zinc-800/50 p-1 rounded-full transition-colors min-w-max">
             {TABS.map((tab) => (
               <button
                 key={tab}
+                type="button"
                 onClick={() => setActiveTab(tab)}
                 className={`px-5 md:px-7 py-2 rounded-full text-sm md:text-[15px] font-semibold transition-all duration-200 ${
                   activeTab === tab
@@ -148,7 +153,6 @@ export default function Home() {
 
           {/* 4-2. 보유 종목 상세 테이블 */}
           <div className="lg:col-span-2 overflow-hidden">
-            {/* ✅ 2. 보유 종목 타이틀과 신규 매수 버튼을 양끝으로 배치 (모바일 반응형 Flexbox 적용) */}
             <div className="flex justify-between items-center mb-3 md:mb-4 px-1">
               <h2 className="text-base md:text-lg font-bold text-zinc-900 dark:text-zinc-100">
                 보유 종목 상세
@@ -157,7 +161,7 @@ export default function Home() {
             </div>
 
             <div className="md:bg-white md:dark:bg-zinc-900 md:rounded-2xl md:border border-zinc-200/80 dark:border-zinc-800 md:shadow-sm w-full transition-all duration-300">
-              <div className="w-full overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              <div className="w-full overflow-x-auto scrollbar-none">
                 <div className="w-full md:min-w-[700px] md:p-4">
                   <StockTable />
                 </div>

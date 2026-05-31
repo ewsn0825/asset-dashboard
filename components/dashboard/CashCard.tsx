@@ -20,29 +20,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function CashCard() {
   const activeTab = useAssetStore((state) => state.activeTab);
-  const { data: assets = [], isLoading, isError } = useAssets();
-  const queryClient = useQueryClient();
 
+  // 🏎️ [성능 최적화 1] 공유 캐시 풀에서 자산 데이터 수신
+  const { data: allAssets = [], isLoading, isError } = useAssets();
+
+  // 🏎️ [성능 최적화 2] 탭과 캐시를 기반으로 주문 가능 예수금 단일 연산 추출
   const availableCash = useMemo(() => {
     if (activeTab !== "일반") return 0;
-    const cashAsset = assets.find((asset) => asset.id === "cash-balance");
+    const cashAsset = allAssets.find((asset) => asset.id === "cash-balance");
     return cashAsset ? cashAsset.balance : 0;
-  }, [assets, activeTab]);
+  }, [allAssets, activeTab]);
 
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [customAmount, setCustomAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!open) {
-      const timer = setTimeout(() => {
-        setCustomAmount("");
-        setIsSubmitting(false);
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [open]);
-
+  // ⚙️ 숫자 입력 포맷터 (세자리 콤마 추가)
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value.replace(/[^0-9]/g, "");
     if (!rawValue) {
@@ -52,11 +46,13 @@ export function CashCard() {
     setCustomAmount(Number(rawValue).toLocaleString());
   };
 
+  // ⚙️ 금액 퀵 버튼 가산 (+10만, +50만 등)
   const addQuickAmount = (amount: number) => {
     const currentRaw = Number(customAmount.replace(/,/g, "")) || 0;
     setCustomAmount((currentRaw + amount).toLocaleString());
   };
 
+  // ⚙️ 입출금 트리거 핸들러
   const handleCashUpdate = async (type: "deposit" | "withdraw") => {
     if (isSubmitting) return;
 
@@ -68,7 +64,7 @@ export function CashCard() {
 
     setIsSubmitting(true);
     try {
-      // (여기에 실제 서버 DB에 예수금을 업데이트하는 로직이 들어갑니다)
+      // 📝 실제 서비스 시 API 연동부 배치 영역
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       const actionText = type === "deposit" ? "입금" : "출금";
@@ -77,7 +73,8 @@ export function CashCard() {
       );
 
       setOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      // 입출금 성공 시 자산 대시보드 쿼리 무효화 및 백그라운드 리페치 동기화
+      queryClient.invalidateQueries({ queryKey: ["assets", "mock"] });
     } finally {
       setIsSubmitting(false);
     }
@@ -123,10 +120,22 @@ export function CashCard() {
       </div>
 
       <div className="mt-auto pt-5 w-full">
-        <Dialog open={open} onOpenChange={setOpen}>
+        {/* 🛠️ [린트 에러 해결 및 UX 최적화] 
+            onOpenChange 핸들러 내에서 모달이 닫히는(nextOpen이 false인) 타이밍을 캐치하여 
+            useEffect 없이 동기적 상태 전이를 안전하게 스케줄링합니다. */}
+        <Dialog
+          open={open}
+          onOpenChange={(nextOpen) => {
+            setOpen(nextOpen);
+            if (!nextOpen) {
+              setCustomAmount("");
+              setIsSubmitting(false);
+            }
+          }}
+        >
           <DialogTrigger asChild>
             {activeTab === "일반" && (
-              <button className="w-full bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 py-2.5 rounded-xl text-[14px] sm:text-[15px] font-bold transition-colors">
+              <button className="w-full bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 py-2.5 rounded-xl text-[14px] sm:text-[15px] font-bold transition-all duration-200 active:scale-[0.99]">
                 예수금 관리
               </button>
             )}
@@ -143,12 +152,11 @@ export function CashCard() {
             </DialogHeader>
 
             <div className="space-y-5 sm:space-y-6 pt-2 sm:pt-4">
-              {/* 💡 사용자가 오해하지 않도록 '당일 출금(T+2 생략)'에 대한 명확한 안내를 추가했습니다. */}
               <div className="p-3.5 bg-blue-50/50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 text-xs sm:text-[13px] leading-relaxed rounded-xl border border-blue-100/50 dark:border-blue-800/30 transition-colors break-keep">
                 <p className="font-semibold mb-1">💡 모의투자 당일 정산 안내</p>
                 본 모의투자 환경은 사용자 편의를 위해 실제 시장의 T+2
                 결제(2영업일 뒤 정산) 제도를 생략하고,{" "}
-                <strong>매도 대금을 즉시 출금할 수 있도록 구현</strong>
+                <strong>매도 대금을 즉시 출금할 수 있도록 구현</strong>{" "}
                 되었습니다.
               </div>
 
